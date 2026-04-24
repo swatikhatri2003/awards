@@ -1,0 +1,204 @@
+import cors from "cors";
+import dotenv from "dotenv";
+import express from "express";
+import type { RowDataPacket } from "mysql2/promise";
+import { z } from "zod";
+import { getDb } from "./db";
+
+dotenv.config();
+
+const app = express();
+const db = getDb();
+
+const PORT = Number(process.env.PORT || 4000);
+const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
+
+app.use(
+  cors({
+    origin: CORS_ORIGIN,
+    credentials: true,
+  }),
+);
+app.use(express.json());
+
+app.get("/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
+app.get("/categories", async (_req, res) => {
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT category_id, name, winner_nominee_id
+       FROM category
+       ORDER BY category_id ASC`,
+    );
+    return res.json({ ok: true, categories: rows });
+  } catch (e) {
+    console.error("categories db error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.get("/categories/:categoryId/nominees", async (req, res) => {
+  const categoryId = Number(req.params.categoryId);
+  if (!Number.isFinite(categoryId) || categoryId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_CATEGORY_ID" });
+  }
+
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT nominee_id, photo, name, category_id, votes
+       FROM nominee
+       WHERE category_id = :category_id
+       ORDER BY nominee_id ASC`,
+      { category_id: categoryId },
+    );
+    return res.json({ ok: true, nominees: rows });
+  } catch (e) {
+    console.error("nominees db error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+const registerSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  mobile: z.string().trim().min(8).max(15),
+  membership_number: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v && v.length ? v : undefined)),
+});
+
+function generateOtp() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+app.post("/auth/register", async (req, res) => {
+  const parsed = registerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT" });
+  }
+
+  const { name, email, mobile, membership_number } = parsed.data;
+  const otp = generateOtp();
+  const otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
+  const attemptsLeft = 5;
+
+  try {
+    const membershipNo = membership_number ? Number(membership_number) : null;
+    if (membership_number && Number.isNaN(membershipNo)) {
+      return res.status(400).json({ ok: false, error: "INVALID_MEMBERSHIP_NUMBER" });
+    }
+
+    await db.execute(
+      `
+      INSERT INTO users (name, email, phone, membership_no, otp, otp_expires_at, otp_attempts_left)
+      VALUES (:name, :email, :phone, :membership_no, :otp, :otp_expires_at, :otp_attempts_left)
+      ON DUPLICATE KEY UPDATE
+        name = VALUES(name),
+        phone = VALUES(phone),
+        membership_no = VALUES(membership_no),
+        otp = VALUES(otp),
+        otp_expires_at = VALUES(otp_expires_at),
+        otp_attempts_left = VALUES(otp_attempts_left)
+      `,
+      {
+        name,
+        email: email.toLowerCase(),
+        phone: mobile,
+        membership_no: membershipNo,
+        otp,
+        otp_expires_at: otpExpiresAt,
+        otp_attempts_left: attemptsLeft,
+      },
+    );
+  } catch (e) {
+    console.error("register db error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+
+  // For now: simulate sending OTP via Email/WhatsApp/SMS
+  // Replace these logs with real integrations (Nodemailer / Twilio / WhatsApp provider).
+  console.log(`[OTP] email=${email} mobile=${mobile} otp=${otp}`);
+
+  return res.json({
+    ok: true,
+    next: "VERIFY_OTP",
+    otp_sent_to: {
+      email: true,
+      whatsapp: true,
+      sms: true,
+    },
+  });
+});
+
+const verifySchema = z.object({
+  email: z.string().email(),
+  mobile: z.string().trim().min(8).max(15),
+  otp: z.string().regex(/^\d{6}$/),
+});
+
+app.post("/auth/verify", async (req, res) => {
+  const parsed = verifySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT" });
+  }
+
+  const { email, mobile, otp } = parsed.data;
+
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT id, name, email, phone, membership_no, otp AS db_otp, otp_expires_at, otp_attempts_left
+       FROM users
+       WHERE email = :email AND phone = :phone
+       LIMIT 1`,
+      { email: email.toLowerCase(), phone: mobile },
+    );
+
+    const user = rows[0];
+    if (!user) return res.status(400).json({ ok: false, error: "NOT_FOUND" });
+
+    if (!user.otp_expires_at || new Date(user.otp_expires_at).getTime() < Date.now()) {
+      return res.status(400).json({ ok: false, error: "EXPIRED" });
+    }
+
+    const attemptsLeft = Number(user.otp_attempts_left ?? 0);
+    if (attemptsLeft <= 0) {
+      return res.status(400).json({ ok: false, error: "TOO_MANY_ATTEMPTS", attemptsLeft: 0 });
+    }
+
+    if (String(user.db_otp) !== otp) {
+      const nextAttempts = attemptsLeft - 1;
+      await db.execute(`UPDATE users SET otp_attempts_left = :n WHERE id = :id`, { n: nextAttempts, id: user.id });
+      return res.status(400).json({ ok: false, error: "INVALID", attemptsLeft: nextAttempts });
+    }
+
+    await db.execute(
+      `UPDATE users SET otp = NULL, otp_expires_at = NULL, otp_attempts_left = NULL, verified_at = NOW() WHERE id = :id`,
+      { id: user.id },
+    );
+
+    return res.json({
+      ok: true,
+      registered: true,
+      person: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        mobile: user.phone,
+        membershipNumber: user.membership_no ?? undefined,
+      },
+    });
+  } catch (e) {
+    console.error("verify db error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`API listening on http://localhost:${PORT}`);
+  console.log(`CORS origin: ${CORS_ORIGIN}`);
+});
+
