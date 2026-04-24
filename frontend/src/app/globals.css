@@ -56,27 +56,50 @@ html {
   width: 100%;
   max-width: 980px;
   margin: 0 auto;
-  padding: 56px 20px;
+  padding: clamp(18px, 4vw, 56px) 16px;
   display: flex;
   justify-content: center;
 }
 
+.containerWide {
+  max-width: none;
+  min-height: 100vh;
+  padding: clamp(16px, 3vw, 40px) clamp(12px, 2vw, 24px);
+}
+
 .card {
   width: 100%;
-  max-width: 620px;
+  max-width: 720px;
   background: linear-gradient(180deg, var(--card), rgba(255, 255, 255, 0.03));
   border: 1px solid var(--border);
   border-radius: 20px;
-  padding: 28px;
+  padding: clamp(16px, 2.4vw, 28px);
   box-shadow: var(--shadow);
   backdrop-filter: blur(10px);
+}
+
+.cardWide {
+  max-width: 1200px;
+}
+
+.brandRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 0;
+}
+
+.brandRight {
+  flex: 0 0 auto;
+  padding-top: 2px;
 }
 
 .brandMark {
@@ -101,7 +124,7 @@ html {
 }
 
 .headline {
-  font-size: 28px;
+  font-size: clamp(22px, 3.5vw, 30px);
   line-height: 1.15;
   margin: 14px 0 8px;
 }
@@ -171,6 +194,27 @@ html {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.linkBtn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  height: 34px;
+  padding: 0 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.16s ease;
+  white-space: nowrap;
+}
+
+.linkBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .btn,
@@ -259,6 +303,7 @@ html {
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 6px;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -322,17 +367,53 @@ html {
 }
 
 .listItem {
+  appearance: none;
+  width: 100%;
   text-align: left;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.04);
   border-radius: 14px;
   padding: 10px;
   cursor: pointer;
+  color: var(--text);
+  transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.listItem:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.listItem:focus-visible {
+  outline: none;
+  border-color: rgba(159, 231, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(159, 231, 255, 0.12);
 }
 
 .listItemActive {
   border-color: rgba(159, 231, 255, 0.28);
   background: rgba(159, 231, 255, 0.08);
+}
+
+.selectableCard {
+  position: relative;
+}
+
+.selectableCardSelected {
+  border-color: rgba(214, 180, 106, 0.55) !important;
+  background: rgba(214, 180, 106, 0.12) !important;
+  box-shadow: 0 0 0 3px rgba(214, 180, 106, 0.12);
+}
+
+.selectableCardSelected::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  pointer-events: none;
+  outline: 2px solid rgba(214, 180, 106, 0.35);
+  outline-offset: 0;
 }
 
 .listTop {
@@ -345,6 +426,16 @@ html {
 .listTitle {
   font-weight: 800;
   line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listSubtle {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted2);
 }
 
 .badge {
@@ -415,23 +506,23 @@ html {
 
 .nomineeGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .nomineeCard {
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.04);
   border-radius: 14px;
-  padding: 10px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .nomineePhotoWrap {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 4 / 3;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -448,14 +539,18 @@ html {
 .nomineeName {
   font-weight: 800;
   line-height: 1.2;
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .nomineeGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 520px) {
   .card {
     padding: 18px;
-  }
-  .headline {
-    font-size: 24px;
   }
 
   .grid2 {
@@ -464,6 +559,21 @@ html {
 
   .nomineeGrid {
     grid-template-columns: 1fr;
+  }
+
+  .row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .linkBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .brandRow {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .timerRow {

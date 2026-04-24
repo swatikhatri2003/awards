@@ -1,6 +1,7 @@
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
+import path from "node:path";
 import type { RowDataPacket } from "mysql2/promise";
 import { z } from "zod";
 import { getDb } from "./db";
@@ -20,6 +21,10 @@ app.use(
   }),
 );
 app.use(express.json());
+
+// Serve uploaded nominee images (and other future uploads)
+// This assumes the server is started with CWD = backend/ (npm run dev/start).
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -60,10 +65,46 @@ app.get("/categories/:categoryId/nominees", async (req, res) => {
   }
 });
 
+app.post("/nominees/:nomineeId/vote", async (req, res) => {
+  const nomineeId = Number(req.params.nomineeId);
+  if (!Number.isFinite(nomineeId) || nomineeId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_NOMINEE_ID" });
+  }
+
+  try {
+    const [result] = await db.execute(
+      `UPDATE nominee
+       SET votes = COALESCE(votes, 0) + 1
+       WHERE nominee_id = :nominee_id`,
+      { nominee_id: nomineeId },
+    );
+
+    // @ts-expect-error mysql2 result shape varies by config
+    const affected = Number(result?.affectedRows ?? 0);
+    if (affected <= 0) return res.status(404).json({ ok: false, error: "NOMINEE_NOT_FOUND" });
+
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT nominee_id, photo, name, category_id, votes
+       FROM nominee
+       WHERE nominee_id = :nominee_id
+       LIMIT 1`,
+      { nominee_id: nomineeId },
+    );
+    return res.json({ ok: true, nominee: rows[0] ?? null });
+  } catch (e) {
+    console.error("vote db error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
 const registerSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
-  mobile: z.string().trim().min(8).max(15),
+  mobile: z
+    .string()
+    .trim()
+    .transform((v) => v.replace(/[^\d]/g, ""))
+    .refine((v) => v.length >= 8 && v.length <= 15),
   membership_number: z
     .string()
     .trim()
@@ -98,6 +139,7 @@ app.post("/auth/register", async (req, res) => {
       VALUES (:name, :email, :phone, :membership_no, :otp, :otp_expires_at, :otp_attempts_left)
       ON DUPLICATE KEY UPDATE
         name = VALUES(name),
+        email = VALUES(email),
         phone = VALUES(phone),
         membership_no = VALUES(membership_no),
         otp = VALUES(otp),
@@ -136,7 +178,11 @@ app.post("/auth/register", async (req, res) => {
 
 const verifySchema = z.object({
   email: z.string().email(),
-  mobile: z.string().trim().min(8).max(15),
+  mobile: z
+    .string()
+    .trim()
+    .transform((v) => v.replace(/[^\d]/g, ""))
+    .refine((v) => v.length >= 8 && v.length <= 15),
   otp: z.string().regex(/^\d{6}$/),
 });
 
