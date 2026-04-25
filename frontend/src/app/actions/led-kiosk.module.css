@@ -152,7 +152,9 @@
 .timerHud {
   position: fixed;
   top: clamp(10px, 1.8vw, 18px);
-  left: clamp(10px, 1.8vw, 18px);
+  /* near centered title, slightly to the right */
+  left: 50%;
+  transform: translateX(clamp(110px, 18vw, 210px));
   z-index: 60;
   padding: 6px 10px;
   border-radius: 8px;
@@ -195,13 +197,18 @@
 }
 
 .timerCard {
-  width: 100%;
-  max-width: 420px;
-  margin-right: auto;
+  position: fixed;
+  left: clamp(8px, 1.4vw, 18px);
+  /* sit above the bottom-left back button */
+  bottom: calc(clamp(8px, 1.4vw, 18px) + 32px);
+  z-index: 60;
+  width: min(92vw, 420px);
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(0, 0, 0, 0.16);
   padding: 10px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
 }
 
 .timerTitle {
