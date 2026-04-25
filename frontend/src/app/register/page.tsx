@@ -109,7 +109,7 @@ export default function RegisterPage() {
 
         {error ? <div className="error">Error: {error}</div> : null}
 
-        <button className="btn p-2 rounded-lg" disabled={loading}>
+        <button type="submit" className="btn btnLg" disabled={loading}>
           {loading ? "Sending OTP..." : "Register & Send OTP"}
         </button>
       </form>

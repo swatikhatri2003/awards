@@ -127,8 +127,8 @@ export default function VoteCategoryPage() {
       subtitle="Select one nominee and submit your vote. After voting, the displayed vote count updates immediately."
       wide
       right={
-        <button className="linkBtn" type="button" onClick={() => router.push("/actions")}>
-          Back to dashboard
+        <button className="linkBtn" type="button" onClick={() => router.push("/register")}>
+          Exit / change account
         </button>
       }
     >

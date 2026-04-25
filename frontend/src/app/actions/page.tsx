@@ -2,9 +2,9 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import { Shell } from "../_components/Shell";
+import styles from "./led-kiosk.module.css";
 
-type TabKey = "HOME" | "CATEGORY" | "WINNER";
+type ScreenKey = "HOME" | "CATEGORY" | "WINNER";
 
 type EventInfo = {
   name: string;
@@ -61,44 +61,26 @@ function nomineePhotoUrl(apiBase: string, photo?: string) {
   return `${base}/uploads/nominee/${safeFile}`;
 }
 
-function EmptyState({ title }: { title: string }) {
-  return (
-    <div className="panel">
-      <div className="panelHeader">
-        <div className="panelTitle">{title}</div>
-        <div className="panelMeta">Coming soon</div>
-      </div>
-      <div className="hint">This tab is currently empty.</div>
-    </div>
-  );
-}
-
 function HomeEvent({ event }: { event: EventInfo }) {
   return (
-    <section className="panel" aria-label="Event">
-      <div className="panelHeader">
-        <div className="panelTitle">{event.name}</div>
-        <div className="panelMeta">Event</div>
-      </div>
-      <div style={{ width: "100%" }}>
-        <img
-          src={event.photoSrc}
-          alt={event.name}
-          style={{
-            width: "100%",
-            height: "auto",
-            borderRadius: 12,
-            display: "block",
-            border: "1px solid rgba(255,255,255,0.08)",
-          }}
-        />
-      </div>
+    <section className={styles.homeStage} aria-label="Event">
+      <h1 className={styles.homeTitle}>{event.name}</h1>
+      <img className={styles.heroImg} src={event.photoSrc} alt={event.name} />
     </section>
   );
 }
 
-function Dashboard({ apiBase }: { apiBase: string }) {
-  const [tab, setTab] = React.useState<TabKey>("CATEGORY");
+function LedDashboard({ apiBase }: { apiBase: string }) {
+  const router = useRouter();
+
+  React.useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+  const [screen, setScreen] = React.useState<ScreenKey>("HOME");
   const event: EventInfo = React.useMemo(
     () => ({
       name: "YLF Member Awards",
@@ -111,7 +93,7 @@ function Dashboard({ apiBase }: { apiBase: string }) {
   const [categoriesLoading, setCategoriesLoading] = React.useState(false);
   const [categoriesError, setCategoriesError] = React.useState<string | null>(null);
 
-  const [expandedCategoryId, setExpandedCategoryId] = React.useState<number | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = React.useState<number | null>(null);
   const [nomineesByCategory, setNomineesByCategory] = React.useState<Record<number, Nominee[]>>({});
   const [nomineesLoadingByCategory, setNomineesLoadingByCategory] = React.useState<Record<number, boolean>>({});
   const [nomineesErrorByCategory, setNomineesErrorByCategory] = React.useState<Record<number, string | null>>({});
@@ -120,7 +102,7 @@ function Dashboard({ apiBase }: { apiBase: string }) {
   const [timers, setTimers] = React.useState<Record<number, TimerState>>({});
 
   React.useEffect(() => {
-    if (tab !== "CATEGORY" && tab !== "WINNER") return;
+    if (screen !== "CATEGORY" && screen !== "WINNER") return;
     setCategoriesLoading(true);
     setCategoriesError(null);
     fetch(`${apiBase}/categories`)
@@ -132,11 +114,11 @@ function Dashboard({ apiBase }: { apiBase: string }) {
       .then((data) => {
         const next = Array.isArray(data.categories) ? data.categories : [];
         setCategories(next);
-        setExpandedCategoryId((cur) => cur ?? (next[0]?.category_id ?? null));
+        setSelectedCategoryId((cur) => cur);
       })
       .catch((e) => setCategoriesError(e instanceof Error ? e.message : "CATEGORIES_FAILED"))
       .finally(() => setCategoriesLoading(false));
-  }, [apiBase, tab]);
+  }, [apiBase, screen]);
 
   const loadNominees = React.useCallback(
     async (categoryId: number) => {
@@ -163,18 +145,18 @@ function Dashboard({ apiBase }: { apiBase: string }) {
   );
 
   React.useEffect(() => {
-    if (tab !== "CATEGORY") return;
-    if (!expandedCategoryId) return;
-    void loadNominees(expandedCategoryId);
-  }, [tab, expandedCategoryId, loadNominees]);
+    if (screen !== "CATEGORY") return;
+    if (!selectedCategoryId) return;
+    void loadNominees(selectedCategoryId);
+  }, [screen, selectedCategoryId, loadNominees]);
 
   React.useEffect(() => {
-    if (tab !== "WINNER") return;
+    if (screen !== "WINNER") return;
     for (const c of categories) {
       if (!c.winner_nominee_id) continue;
       void loadNominees(c.category_id);
     }
-  }, [tab, categories, loadNominees]);
+  }, [screen, categories, loadNominees]);
 
   React.useEffect(() => {
     const id = window.setInterval(() => {
@@ -237,239 +219,293 @@ function Dashboard({ apiBase }: { apiBase: string }) {
     });
   }
 
+  const selectedCategory =
+    selectedCategoryId && categories.length ? categories.find((c) => c.category_id === selectedCategoryId) : undefined;
+  const selectedNominees = selectedCategoryId ? nomineesByCategory[selectedCategoryId] || [] : [];
+  const selectedNomineesLoading = selectedCategoryId ? nomineesLoadingByCategory[selectedCategoryId] || false : false;
+  const selectedNomineesError = selectedCategoryId ? nomineesErrorByCategory[selectedCategoryId] || null : null;
+  const selectedTimer = selectedCategoryId ? timers[selectedCategoryId] : undefined;
+
+  const showCategoryDetail = screen === "CATEGORY" && !!selectedCategoryId;
+
   return (
-    <div className="dash">
-      <div className="tabs" role="tablist" aria-label="Main tabs">
-        <button className={tab === "HOME" ? "tab tabActive" : "tab"} onClick={() => setTab("HOME")} role="tab">
-          Home
-        </button>
-        <button className={tab === "CATEGORY" ? "tab tabActive" : "tab"} onClick={() => setTab("CATEGORY")} role="tab">
-          Category
-        </button>
-        <button className={tab === "WINNER" ? "tab tabActive" : "tab"} onClick={() => setTab("WINNER")} role="tab">
-          Winner
-        </button>
+    <div className={styles.root}>
+      <div className={styles.bg} aria-hidden="true" />
+      <div className={styles.diagonals} aria-hidden="true">
+        <div className={styles.diagonal1} />
+        <div className={styles.diagonal2} />
+        <div className={styles.diagonal3} />
       </div>
 
-      {tab === "HOME" ? <HomeEvent event={event} /> : null}
-      {tab === "WINNER" ? (
-        <section className="panel" aria-label="Winners by category">
-          <div className="panelHeader">
-            <div className="panelTitle">Winners</div>
-            <div className="panelMeta">
-              {categoriesLoading ? "Loading..." : categoriesError ? "Failed" : `${categories.length} categories`}
-            </div>
-          </div>
+      <div className={styles.stage}>
+        <div className={styles.stageScroll}>
+        {screen === "HOME" ? <HomeEvent event={event} /> : null}
 
-          <div className="hint" style={{ marginBottom: 10 }}>
-            Each category shows its winner (based on the winner nominee id stored in the category table).
-          </div>
-
-          {categoriesError ? <div className="error">Error: {categoriesError}</div> : null}
-
-          <div className="nomineeGrid">
-            {categories.map((c) => {
-              const nominees = nomineesByCategory[c.category_id] || [];
-              const nomineesLoading = nomineesLoadingByCategory[c.category_id] || false;
-              const nomineesError = nomineesErrorByCategory[c.category_id] || null;
-              const winnerId = c.winner_nominee_id ?? null;
-              const winner = winnerId ? nominees.find((n) => n.nominee_id === winnerId) : undefined;
-
-              const src =
-                winner && (nomineePhotoUrl(apiBase, winner.photo) || FALLBACK_PHOTO)
-                  ? nomineePhotoUrl(apiBase, winner.photo) || FALLBACK_PHOTO
-                  : FALLBACK_PHOTO;
-
-              return (
-                <div key={c.category_id} className="nomineeCard" style={{ padding: 12 }}>
-                  <div className="listTitle" style={{ whiteSpace: "normal", marginBottom: 8 }}>
-                    <span className="badge">#{c.category_id}</span> {c.name}
+        {screen === "CATEGORY" ? (
+          <section aria-label="Categories" style={{ width: "100%" }}>
+            {!showCategoryDetail ? (
+              <>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+                  <div className={styles.sectionTitle}>Categories</div>
+                  <div className="panelMeta">
+                    {categoriesLoading ? "Loading..." : categoriesError ? "Failed" : `${categories.length} categories`}
                   </div>
-
-                  {!winnerId ? <div className="hint">Winner not set for this category.</div> : null}
-                  {winnerId && nomineesLoading ? <div className="hint">Loading winner...</div> : null}
-                  {winnerId && nomineesError ? <div className="error">Error: {nomineesError}</div> : null}
-
-                  {winnerId && !nomineesLoading && !nomineesError ? (
-                    winner ? (
-                      <>
-                        <div className="nomineePhotoWrap" style={{ marginBottom: 10 }}>
-                          <img
-                            className="nomineePhoto"
-                            src={src}
-                            alt={winner.name}
-                            loading="lazy"
-                            onError={(e) => {
-                              e.currentTarget.src = ERROR_PHOTO;
-                            }}
-                          />
-                        </div>
-                        <div className="nomineeName">{winner.name}</div>
-                      </>
-                    ) : (
-                      <div className="hint">Winner nominee not found in this category.</div>
-                    )
-                  ) : null}
                 </div>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
 
-      {tab === "CATEGORY" ? (
-        <section className="panel" aria-label="Award categories and nominees">
-          <div className="panelHeader">
-            <div className="panelTitle">Award Categories</div>
-            <div className="panelMeta">{categoriesLoading ? "Loading..." : `${categories.length} categories`}</div>
-          </div>
+                {categoriesError ? <div className="error" style={{ marginTop: 12 }}>Error: {categoriesError}</div> : null}
 
-          <div className="hint" style={{ marginBottom: 10 }}>
-            Select an award category to see nominees. Timer controls are per-category (useful during live award show rounds).
-          </div>
-
-          {categoriesError ? <div className="error">Error: {categoriesError}</div> : null}
-
-          <div className="list" role="list" style={{ maxHeight: "unset", overflow: "visible" }}>
-            {categories.map((c) => {
-              const t = timers[c.category_id];
-              const isOpen = expandedCategoryId === c.category_id;
-              const nominees = nomineesByCategory[c.category_id] || [];
-              const nomineesLoading = nomineesLoadingByCategory[c.category_id] || false;
-              const nomineesError = nomineesErrorByCategory[c.category_id] || null;
-
-              return (
-                <div
-                  key={c.category_id}
-                  className={isOpen ? "listItem listItemActive" : "listItem"}
-                  aria-expanded={isOpen}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    setExpandedCategoryId((cur) => (cur === c.category_id ? null : c.category_id));
-                    void loadNominees(c.category_id);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setExpandedCategoryId((cur) => (cur === c.category_id ? null : c.category_id));
-                      void loadNominees(c.category_id);
-                    }
-                  }}
-                >
-                  <div className="listTop">
-                    <div className="listTitle" style={{ whiteSpace: "normal" }}>
-                      <span className="badge">#{c.category_id}</span> {c.name}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div className="timerChip">{formatTime(t?.remainingSec ?? 0)}</div>
+                <div className="list" role="list" style={{ maxHeight: "unset", overflow: "visible", marginTop: 14 }}>
+                  {categories.map((c) => (
+                    <button
+                      key={c.category_id}
+                      type="button"
+                      className={selectedCategoryId === c.category_id ? "listItem listItemActive" : "listItem"}
+                      onClick={() => {
+                        setSelectedCategoryId(c.category_id);
+                        void loadNominees(c.category_id);
+                      }}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+                    >
+                      <div className="listTitle" style={{ whiteSpace: "normal" }}>
+                        <span className="badge">#{c.category_id}</span> {c.name}
+                      </div>
                       <div className="badge" aria-hidden="true">
-                        {isOpen ? "Hide" : "View"}
+                        Open
                       </div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ fontSize: "clamp(22px, 3vw, 44px)", fontWeight: 950, letterSpacing: "-0.6px" }}>
+                    {selectedCategory?.name || "Category"}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 14 }}>
+                  <button
+                    type="button"
+                    className={styles.backBtn}
+                    onClick={() => setSelectedCategoryId(null)}
+                    title="Back to categories"
+                    aria-label="Back to categories"
+                  >
+                    Back
+                  </button>
+
+                  {(selectedTimer?.running || (selectedTimer?.remainingSec ?? 0) > 0) && !selectedTimer?.error ? (
+                    <div className={styles.timerHud} aria-live="polite">
+                      {formatTime(selectedTimer?.remainingSec ?? 0)}
+                    </div>
+                  ) : null}
+
+                  <div className={styles.timerCard} aria-label="Timer controls">
+                    <div className={styles.timerTitle}>Timer</div>
+
+                    <div className={styles.timerControls}>
+                      <input
+                        className={styles.timerInput}
+                        inputMode="numeric"
+                        placeholder="Sec"
+                        value={selectedCategoryId ? timerInputSec[selectedCategoryId] ?? "" : ""}
+                        onChange={(e) => {
+                          if (!selectedCategoryId) return;
+                          setTimerInputSec((p) => ({
+                            ...p,
+                            [selectedCategoryId]: e.target.value.replace(/[^\d]/g, ""),
+                          }));
+                        }}
+                        aria-label="Timer seconds"
+                      />
+                      <button
+                        className={styles.timerBtn}
+                        type="button"
+                        onClick={() => selectedCategoryId && setTimer(selectedCategoryId)}
+                      >
+                        Set
+                      </button>
+                      <button
+                        className={styles.timerBtn}
+                        type="button"
+                        onClick={() => selectedCategoryId && toggleTimer(selectedCategoryId)}
+                      >
+                        {selectedTimer?.running ? "Pause" : "Start"}
+                      </button>
+                      <button
+                        className={styles.timerBtnGhost}
+                        type="button"
+                        onClick={() => selectedCategoryId && stopTimer(selectedCategoryId)}
+                      >
+                        Stop
+                      </button>
+                    </div>
+
+                    {selectedTimer?.error ? <div className={styles.timerError}>{selectedTimer.error}</div> : null}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 16 }}>
+                  <div className="panelHeader" style={{ marginBottom: 10 }}>
+                    <div className="panelTitle" style={{ fontSize: 14 }}>
+                      Nominees
+                    </div>
+                    <div className="panelMeta">
+                      {selectedNomineesLoading
+                        ? "Loading..."
+                        : selectedNomineesError
+                          ? "Failed"
+                          : `${selectedNominees.length} nominees`}
                     </div>
                   </div>
 
-                  {!isOpen ? <div className="listSubtle">Tap to view nominees and run the timer.</div> : null}
-
-                  {isOpen ? (
-                    <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10 }}>
-                      <div className="timerRow">
-                        <input
-                          className="timerInput"
-                          inputMode="numeric"
-                          placeholder="Timer (seconds)"
-                          value={timerInputSec[c.category_id] ?? ""}
-                          onChange={(e) =>
-                            setTimerInputSec((p) => ({
-                              ...p,
-                              [c.category_id]: e.target.value.replace(/[^\d]/g, ""),
-                            }))
-                          }
-                          aria-label={`Timer seconds for category ${c.category_id}`}
-                        />
-                        <button className="btnSmall" type="button" onClick={() => setTimer(c.category_id)}>
-                          Set
-                        </button>
-                        <button className="btnSmall" type="button" onClick={() => toggleTimer(c.category_id)}>
-                          {t?.running ? "Pause" : "Start"}
-                        </button>
-                        <button className="btnSmallGhost" type="button" onClick={() => stopTimer(c.category_id)}>
-                          Stop
-                        </button>
-                      </div>
-                      {t?.error ? <div className="miniError">{t.error}</div> : null}
-
-                      <div style={{ marginTop: 12 }}>
-                        <div className="panelHeader" style={{ marginBottom: 8 }}>
-                          <div className="panelTitle" style={{ fontSize: 14 }}>
-                            Nominees
-                          </div>
-                          <div className="panelMeta">
-                            {nomineesLoading ? "Loading..." : nomineesError ? "Failed" : `${nominees.length} nominees`}
-                          </div>
-                        </div>
-
-                        {nomineesError ? <div className="error">Error: {nomineesError}</div> : null}
-                        {nomineesLoading ? <div className="hint">Loading nominees...</div> : null}
-                        {!nomineesLoading && !nomineesError && nominees.length === 0 ? (
-                          <div className="hint">No nominees found for this category.</div>
-                        ) : null}
-
-                        <div className="nomineeGrid">
-                          {nominees.map((n) => {
-                            const src = nomineePhotoUrl(apiBase, n.photo) || FALLBACK_PHOTO;
-                            return (
-                              <div key={n.nominee_id} className="nomineeCard">
-                                <div className="nomineePhotoWrap">
-                                  <img
-                                    className="nomineePhoto"
-                                    src={src}
-                                    alt={n.name}
-                                    loading="lazy"
-                                    onError={(e) => {
-                                      e.currentTarget.src = ERROR_PHOTO;
-                                    }}
-                                  />
-                                </div>
-                                <div className="nomineeName">{n.name}</div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
+                  {selectedNomineesError ? <div className="error">Error: {selectedNomineesError}</div> : null}
+                  {selectedNomineesLoading ? <div className="hint">Loading nominees...</div> : null}
+                  {!selectedNomineesLoading && !selectedNomineesError && selectedNominees.length === 0 ? (
+                    <div className="hint">No nominees found for this category.</div>
                   ) : null}
+
+                  <div className="nomineeGrid">
+                    {selectedNominees.map((n) => {
+                      const src = nomineePhotoUrl(apiBase, n.photo) || FALLBACK_PHOTO;
+                      return (
+                        <div key={n.nominee_id} className="nomineeCard">
+                          <div className="nomineePhotoWrap">
+                            <img
+                              className="nomineePhoto"
+                              src={src}
+                              alt={n.name}
+                              loading="lazy"
+                              onError={(e) => {
+                                e.currentTarget.src = ERROR_PHOTO;
+                              }}
+                            />
+                          </div>
+                          <div className="nomineeName">{n.name}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
+              </>
+            )}
+          </section>
+        ) : null}
+
+        {screen === "WINNER" ? (
+          <section aria-label="Winners" style={{ width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+              <div className={styles.sectionTitle}>Winners</div>
+              <div className="panelMeta">
+                {categoriesLoading ? "Loading..." : categoriesError ? "Failed" : `${categories.length} categories`}
+              </div>
+            </div>
+
+            {categoriesError ? <div className="error" style={{ marginTop: 12 }}>Error: {categoriesError}</div> : null}
+
+            <div className="nomineeGrid" style={{ marginTop: 14 }}>
+              {categories
+                .filter((c) => !!c.winner_nominee_id)
+                .map((c) => {
+                  const nominees = nomineesByCategory[c.category_id] || [];
+                  const nomineesLoading = nomineesLoadingByCategory[c.category_id] || false;
+                  const nomineesError = nomineesErrorByCategory[c.category_id] || null;
+                  const winnerId = c.winner_nominee_id ?? null;
+                  const winner = winnerId ? nominees.find((n) => n.nominee_id === winnerId) : undefined;
+                  const src = winner ? nomineePhotoUrl(apiBase, winner.photo) || FALLBACK_PHOTO : FALLBACK_PHOTO;
+
+                  return (
+                    <div key={c.category_id} className="nomineeCard" style={{ padding: 12 }}>
+                      <div className="listTitle" style={{ whiteSpace: "normal" }}>
+                        <span className="badge">#{c.category_id}</span> {c.name}
+                      </div>
+
+                      {nomineesLoading ? <div className="hint" style={{ marginTop: 10 }}>Loading winner...</div> : null}
+                      {nomineesError ? <div className="error" style={{ marginTop: 10 }}>Error: {nomineesError}</div> : null}
+
+                      {!nomineesLoading && !nomineesError ? (
+                        winner ? (
+                          <>
+                            <div className="nomineePhotoWrap" style={{ marginTop: 10 }}>
+                              <img
+                                className="nomineePhoto"
+                                src={src}
+                                alt={winner.name}
+                                loading="lazy"
+                                onError={(e) => {
+                                  e.currentTarget.src = ERROR_PHOTO;
+                                }}
+                              />
+                            </div>
+                            <div className="nomineeName" style={{ marginTop: 8 }}>
+                              {winner.name}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="hint" style={{ marginTop: 10 }}>
+                            Winner nominee not found in this category.
+                          </div>
+                        )
+                      ) : null}
+                    </div>
+                  );
+                })}
+            </div>
+
+            {!categoriesLoading && !categoriesError && categories.filter((c) => !!c.winner_nominee_id).length === 0 ? (
+              <div className="hint" style={{ marginTop: 14 }}>
+                No winners decided yet.
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+        </div>
+      </div>
+
+      <nav className={styles.dock} aria-label="Screen controls">
+        <button
+          type="button"
+          className={`${styles.squareBtn} ${screen === "HOME" ? styles.squareBtnActive : styles.squareBtnMuted}`}
+          onClick={() => {
+            setScreen("HOME");
+          }}
+          aria-label="Home"
+          title="Home"
+        >
+          H
+        </button>
+        <button
+          type="button"
+          className={`${styles.squareBtn} ${screen === "CATEGORY" ? styles.squareBtnActive : styles.squareBtnMuted}`}
+          onClick={() => {
+            setScreen("CATEGORY");
+            setSelectedCategoryId(null);
+          }}
+          aria-label="Categories"
+          title="Categories"
+        >
+          C
+        </button>
+        <button
+          type="button"
+          className={`${styles.squareBtn} ${screen === "WINNER" ? styles.squareBtnActive : styles.squareBtnMuted}`}
+          onClick={() => {
+            setScreen("WINNER");
+          }}
+          aria-label="Winners"
+          title="Winners"
+        >
+          W
+        </button>
+      </nav>
     </div>
   );
 }
 
 export default function ActionsPage() {
-  const router = useRouter();
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
 
-  return (
-    <Shell
-      title="Awards Show Dashboard"
-      subtitle="Live award categories with nominees. Open a category to view nominees, and use the timer for each round."
-      wide
-      right={
-        <button className="linkBtn" type="button" onClick={() => router.push("/register")}>
-          Register again
-        </button>
-      }
-    >
-      <div className="dashWrap">
-       
-
-        <Dashboard apiBase={apiBase} />
-      </div>
-    </Shell>
-  );
+  return <LedDashboard apiBase={apiBase} />;
 }
 

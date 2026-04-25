@@ -3,7 +3,7 @@
 import React from "react";
 
 export function Shell(props: {
-  title: string;
+  title?: string;
   subtitle?: string;
   children: React.ReactNode;
   right?: React.ReactNode;
@@ -14,7 +14,7 @@ export function Shell(props: {
   return (
     <main className={containerClass}>
       <section className={cardClass}>
-        <div className="brandRow">
+        {/* <div className="brandRow">
           <div className="brand">
             <div className="brandMark" aria-hidden="true" />
             <div>
@@ -23,9 +23,9 @@ export function Shell(props: {
             </div>
           </div>
           {props.right ? <div className="brandRight">{props.right}</div> : null}
-        </div>
+        </div> */}
 
-        <h1 className="headline">{props.title}</h1>
+        {props.title ? <h1 className="headline">{props.title}</h1> : null}
         {props.subtitle ? <p className="subhead">{props.subtitle}</p> : null}
 
         {props.children}

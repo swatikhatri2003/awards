@@ -60,7 +60,22 @@ export default function OtpPage() {
       if (!res.ok) throw new Error(friendlyError(data?.error || "OTP_VERIFY_FAILED"));
 
       clearPendingRegistration();
-      router.push("/actions");
+
+      const catRes = await fetch(`${apiBase}/categories`);
+      const catData = await catRes.json().catch(() => null);
+      const rawList = catData?.categories;
+      if (!catRes.ok || !Array.isArray(rawList) || rawList.length === 0) {
+        throw new Error("No voting categories are available right now. Please try again later.");
+      }
+      const sorted = [...rawList].sort(
+        (a: { category_id: number }, b: { category_id: number }) =>
+          Number(a.category_id) - Number(b.category_id),
+      );
+      const firstId = Number(sorted[0]?.category_id);
+      if (!Number.isFinite(firstId) || firstId <= 0) {
+        throw new Error("No voting categories are available right now. Please try again later.");
+      }
+      router.push(`/vote/${firstId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "OTP_VERIFY_FAILED");
     } finally {
