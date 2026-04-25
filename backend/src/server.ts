@@ -247,4 +247,3 @@ app.listen(PORT, () => {
   console.log(`API listening on http://localhost:${PORT}`);
   console.log(`CORS origin: ${CORS_ORIGIN}`);
 });
-
