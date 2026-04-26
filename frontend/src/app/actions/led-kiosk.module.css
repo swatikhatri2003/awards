@@ -151,10 +151,10 @@
 
 .timerHud {
   position: fixed;
-  top: clamp(10px, 1.8vw, 18px);
-  /* near centered title, slightly to the right */
+  top: calc(clamp(10px, 1.8vw, 18px) + env(safe-area-inset-top, 0px));
+  /* near title (center-top), slightly to the right */
   left: 50%;
-  transform: translateX(clamp(110px, 18vw, 210px));
+  transform: translateX(clamp(180px, 18vw, 320px));
   z-index: 60;
   padding: 6px 10px;
   border-radius: 8px;
@@ -199,16 +199,14 @@
 .timerCard {
   position: fixed;
   left: clamp(8px, 1.4vw, 18px);
-  /* sit above the bottom-left back button */
-  bottom: calc(clamp(8px, 1.4vw, 18px) + 32px);
+  bottom: calc(clamp(8px, 1.4vw, 18px) + 34px); /* sits just above Back */
   z-index: 60;
-  width: min(92vw, 420px);
+  width: auto;
+  max-width: min(520px, calc(100vw - 24px));
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(0, 0, 0, 0.16);
   padding: 10px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(6px);
 }
 
 .timerTitle {
@@ -224,7 +222,7 @@
   align-items: center;
   justify-content: flex-start;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .timerInput {
@@ -327,5 +325,17 @@
   .dock {
     right: 8px;
     bottom: 8px;
+  }
+
+  .timerHud {
+    left: 50%;
+    right: auto;
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    transform: translateX(-50%);
+    padding: 10px 14px;
+    font-size: 18px;
+    border-radius: 999px;
+    max-width: calc(100vw - 24px);
+    text-align: center;
   }
 }
