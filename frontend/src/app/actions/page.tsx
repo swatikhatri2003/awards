@@ -3,6 +3,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import styles from "./led-kiosk.module.css";
+import { setYlfCategory, setYlfGraph, setYlfPage } from "@/lib/firebase";
 
 type ScreenKey = "HOME" | "CATEGORY" | "WINNER";
 
@@ -228,6 +229,58 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
 
   const showCategoryDetail = screen === "CATEGORY" && !!selectedCategoryId;
 
+  const goToScreen = React.useCallback((next: ScreenKey) => {
+    setScreen(next);
+    if (next === "HOME") {
+      //console.log(`[UI] Screen button -> HOME; pushing ylf/page="home"`);
+      void setYlfPage("home");
+    } else if (next === "WINNER") {
+      //console.log(`[UI] Screen button -> WINNER; pushing ylf/page="winner"`);
+      void setYlfPage("winner");
+    } else {
+     // console.log(`[UI] Screen button -> CATEGORY (no Firebase write yet — waits for a specific category click)`);
+    }
+  }, []);
+
+  const selectCategory = React.useCallback(
+    async (c: Category) => {
+      setSelectedCategoryId(c.category_id);
+      console.log(`[UI] Category selected -> id=${c.category_id}, name="${c.name}"; fetching nominees...`);
+
+      let nominees: Nominee[] = nomineesByCategory[c.category_id] ?? [];
+      if (!Array.isArray(nomineesByCategory[c.category_id])) {
+        try {
+          setNomineesLoadingByCategory((p) => ({ ...p, [c.category_id]: true }));
+          const r = await fetch(`${apiBase}/categories/${c.category_id}/nominees`);
+          const data = await r.json().catch(() => null);
+          if (!r.ok) throw new Error((data && data.error) || "NOMINEES_FAILED");
+          nominees = Array.isArray(data?.nominees) ? data.nominees : [];
+          setNomineesByCategory((p) => ({ ...p, [c.category_id]: nominees }));
+          setNomineesErrorByCategory((p) => ({ ...p, [c.category_id]: null }));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "NOMINEES_FAILED";
+          console.error(`[UI] Failed to fetch nominees for category ${c.category_id}:`, msg);
+          setNomineesErrorByCategory((p) => ({ ...p, [c.category_id]: msg }));
+          nominees = [];
+        } finally {
+          setNomineesLoadingByCategory((p) => ({ ...p, [c.category_id]: false }));
+        }
+      }
+
+      void setYlfCategory({
+        id: c.category_id,
+        name: c.name,
+        nominees: nominees.map((n) => ({
+          id: n.nominee_id,
+          name: n.name,
+          photo: n.photo ?? "",
+          votes: Number(n.votes ?? 0),
+        })),
+      });
+    },
+    [apiBase, nomineesByCategory],
+  );
+
   return (
     <div className={styles.root}>
       <div className={styles.bg} aria-hidden="true" />
@@ -261,8 +314,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
                       type="button"
                       className={selectedCategoryId === c.category_id ? "listItem listItemActive" : "listItem"}
                       onClick={() => {
-                        setSelectedCategoryId(c.category_id);
-                        void loadNominees(c.category_id);
+                        void selectCategory(c);
                       }}
                       style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
                     >
@@ -351,6 +403,30 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
                     <div className="panelTitle" style={{ fontSize: 14 }}>
                       Nominees
                     </div>
+                    <button
+                      type="button"
+                      className={styles.timerBtn}
+                      onClick={() => {
+                        if (!selectedCategory) return;
+                        console.log(
+                          `[UI] Graph button -> category id=${selectedCategory.category_id}, nominees=${selectedNominees.length}`,
+                        );
+                        void setYlfGraph({
+                          id: selectedCategory.category_id,
+                          name: selectedCategory.name,
+                          nominees: selectedNominees.map((n) => ({
+                            id: n.nominee_id,
+                            name: n.name,
+                            photo: n.photo ?? "",
+                            votes: Number(n.votes ?? 0),
+                          })),
+                        });
+                      }}
+                      disabled={!selectedCategory || selectedNomineesLoading}
+                      title="Show vote graph on screen"
+                    >
+                      Graph
+                    </button>
                     <div className="panelMeta">
                       {selectedNomineesLoading
                         ? "Loading..."
@@ -468,7 +544,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
           type="button"
           className={`${styles.squareBtn} ${screen === "HOME" ? styles.squareBtnActive : styles.squareBtnMuted}`}
           onClick={() => {
-            setScreen("HOME");
+            goToScreen("HOME");
           }}
           aria-label="Home"
           title="Home"
@@ -479,7 +555,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
           type="button"
           className={`${styles.squareBtn} ${screen === "CATEGORY" ? styles.squareBtnActive : styles.squareBtnMuted}`}
           onClick={() => {
-            setScreen("CATEGORY");
+            goToScreen("CATEGORY");
             setSelectedCategoryId(null);
           }}
           aria-label="Categories"
@@ -491,7 +567,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
           type="button"
           className={`${styles.squareBtn} ${screen === "WINNER" ? styles.squareBtnActive : styles.squareBtnMuted}`}
           onClick={() => {
-            setScreen("WINNER");
+            goToScreen("WINNER");
           }}
           aria-label="Winners"
           title="Winners"

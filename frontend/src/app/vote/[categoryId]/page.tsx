@@ -1,27 +1,16 @@
 "use client";
 
 import React from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Shell } from "../../_components/Shell";
-
-type Category = {
-  category_id: number;
-  name: string;
-  winner_nominee_id: number | null;
-};
-
-type Nominee = {
-  nominee_id: number;
-  photo: string;
-  name: string;
-  category_id: number;
-  votes: number;
-};
+import { subscribeYlf, type YlfNominee, type YlfState } from "@/lib/firebase";
 
 const FALLBACK_PHOTO =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23111424'/%3E%3Ctext x='50%25' y='50%25' fill='%23aab3c5' font-size='14' text-anchor='middle' dominant-baseline='middle'%3ENo Photo%3C/text%3E%3C/svg%3E";
 const ERROR_PHOTO =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23111424'/%3E%3Ctext x='50%25' y='50%25' fill='%23aab3c5' font-size='14' text-anchor='middle' dominant-baseline='middle'%3EImage error%3C/text%3E%3C/svg%3E";
+
+const VOTED_STORAGE_KEY = "ylf_voted_categories";
 
 function nomineePhotoUrl(apiBase: string, photo?: string) {
   const p = (photo || "").trim();
@@ -32,6 +21,14 @@ function nomineePhotoUrl(apiBase: string, photo?: string) {
   const last = normalized.split("/").filter(Boolean).pop() || "";
   const safeFile = encodeURIComponent(last);
   return `${base}/uploads/nominee/${safeFile}`;
+}
+
+function normalizeNominees(
+  nominees: NonNullable<YlfState["category"]>["nominees"],
+): YlfNominee[] {
+  if (!nominees) return [];
+  if (Array.isArray(nominees)) return nominees.filter(Boolean);
+  return Object.values(nominees).filter(Boolean);
 }
 
 function friendlyError(code: string) {
@@ -47,61 +44,82 @@ function friendlyError(code: string) {
   }
 }
 
-export default function VoteCategoryPage() {
-  const router = useRouter();
-  const params = useParams<{ categoryId: string }>();
-  const categoryId = Number(params?.categoryId);
+function readVotedMap(): Record<string, number> {
+  try {
+    if (typeof window === "undefined") return {};
+    const raw = window.localStorage.getItem(VOTED_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
 
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+function writeVotedMap(map: Record<string, number>) {
+  try {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(VOTED_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
 
-  const [category, setCategory] = React.useState<Category | null>(null);
-  const [nominees, setNominees] = React.useState<Nominee[]>([]);
+function HomeStage() {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "#000",
+        zIndex: 100,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <img
+        src="/ylf-member-awards-banner.png"
+        alt=""
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "contain",
+          display: "block",
+        }}
+      />
+    </div>
+  );
+}
+
+function CategoryVoteStage({
+  apiBase,
+  category,
+  onExit,
+}: {
+  apiBase: string;
+  category: NonNullable<YlfState["category"]>;
+  onExit: () => void;
+}) {
+  const nominees = React.useMemo(() => normalizeNominees(category.nominees), [category.nominees]);
+
   const [selectedNomineeId, setSelectedNomineeId] = React.useState<number | null>(null);
-
-  const [loading, setLoading] = React.useState(true);
   const [voting, setVoting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState<string | null>(null);
-
-  const load = React.useCallback(async () => {
-    if (!Number.isFinite(categoryId) || categoryId <= 0) {
-      setLoading(false);
-      setError("INVALID_CATEGORY_ID");
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const [catRes, nomRes] = await Promise.all([
-        fetch(`${apiBase}/categories`).then(async (r) => {
-          const data = await r.json().catch(() => null);
-          if (!r.ok) throw new Error(data?.error || "CATEGORIES_FAILED");
-          return data as { ok: boolean; categories: Category[] };
-        }),
-        fetch(`${apiBase}/categories/${categoryId}/nominees`).then(async (r) => {
-          const data = await r.json().catch(() => null);
-          if (!r.ok) throw new Error(data?.error || "NOMINEES_FAILED");
-          return data as { ok: boolean; nominees: Nominee[] };
-        }),
-      ]);
-
-      const found = (catRes.categories || []).find((c) => Number(c.category_id) === categoryId) || null;
-      setCategory(found);
-      setNominees(Array.isArray(nomRes.nominees) ? nomRes.nominees : []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "LOAD_FAILED");
-    } finally {
-      setLoading(false);
-    }
-  }, [apiBase, categoryId]);
+  const [votedNomineeId, setVotedNomineeId] = React.useState<number | null>(null);
 
   React.useEffect(() => {
-    void load();
-  }, [load]);
+    setSelectedNomineeId(null);
+    setError(null);
+    setSuccess(null);
+    const map = readVotedMap();
+    const prev = map[String(category.id)];
+    setVotedNomineeId(typeof prev === "number" ? prev : null);
+  }, [category.id]);
 
   async function submitVote() {
-    if (!selectedNomineeId) return;
+    if (!selectedNomineeId || votedNomineeId !== null) return;
     setVoting(true);
     setError(null);
     setSuccess(null);
@@ -110,8 +128,11 @@ export default function VoteCategoryPage() {
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(friendlyError(data?.error || "VOTE_FAILED"));
 
-      await load();
-      setSuccess("Vote submitted successfully.");
+      const map = readVotedMap();
+      map[String(category.id)] = selectedNomineeId;
+      writeVotedMap(map);
+      setVotedNomineeId(selectedNomineeId);
+      setSuccess("Thank you! Your vote has been recorded.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "VOTE_FAILED");
     } finally {
@@ -119,45 +140,65 @@ export default function VoteCategoryPage() {
     }
   }
 
-  const title = category ? `Vote: ${category.name}` : "Vote";
+  const alreadyVoted = votedNomineeId !== null;
+  const votedNominee = alreadyVoted
+    ? nominees.find((n) => Number(n.id) === votedNomineeId) ?? null
+    : null;
 
   return (
     <Shell
-      title={title}
-      subtitle="Select one nominee and submit your vote. After voting, the displayed vote count updates immediately."
+      title={`Vote: ${category.name}`}
+      subtitle={
+        alreadyVoted
+          ? "You have already voted in this category."
+          : "Select one nominee and submit your vote. You can vote only once."
+      }
       wide
       right={
-        <button className="linkBtn" type="button" onClick={() => router.push("/register")}>
+        <button className="linkBtn" type="button" onClick={onExit}>
           Exit / change account
         </button>
       }
     >
-      {loading ? <div className="hint">Loading category and nominees...</div> : null}
       {error ? <div className="error">Error: {friendlyError(error)}</div> : null}
       {success ? <div className="hint">{success}</div> : null}
 
-      {!loading && !error ? (
+      {alreadyVoted ? (
+        <section className="panel" aria-label="Vote receipt">
+          <div className="panelHeader">
+            <div className="panelTitle">Vote Recorded</div>
+            <div className="panelMeta">{category.name}</div>
+          </div>
+          <div style={{ marginTop: 12 }} className="hint">
+            {votedNominee
+              ? `You voted for "${votedNominee.name}" in this category.`
+              : "Your vote in this category is locked. Please wait for the next category."}
+          </div>
+        </section>
+      ) : (
         <section className="panel" aria-label="Nominee voting">
           <div className="panelHeader">
             <div className="panelTitle">Nominees</div>
             <div className="panelMeta">{nominees.length} nominees</div>
           </div>
 
-          {nominees.length === 0 ? <div className="hint">No nominees found for this category.</div> : null}
+          {nominees.length === 0 ? (
+            <div className="hint">No nominees in this category yet.</div>
+          ) : null}
 
           <div className="nomineeGrid">
             {nominees.map((n) => {
               const src = nomineePhotoUrl(apiBase, n.photo) || FALLBACK_PHOTO;
-              const selected = selectedNomineeId === n.nominee_id;
+              const selected = selectedNomineeId === Number(n.id);
               return (
                 <label
-                  key={n.nominee_id}
+                  key={n.id}
                   className={
                     selected
                       ? "listItem listItemActive selectableCard selectableCardSelected"
                       : "listItem selectableCard"
                   }
-                  style={{ cursor: "pointer" }}
+                  style={{ cursor: voting ? "default" : "pointer" }}
                 >
                   <div className="row" style={{ justifyContent: "space-between" }}>
                     <div className="listTitle" style={{ whiteSpace: "normal", overflow: "visible" }}>
@@ -165,13 +206,11 @@ export default function VoteCategoryPage() {
                         type="radio"
                         name="nominee"
                         checked={selected}
-                        onChange={() => setSelectedNomineeId(n.nominee_id)}
+                        disabled={voting}
+                        onChange={() => setSelectedNomineeId(Number(n.id))}
                         style={{ marginRight: 10 }}
                       />
                       {n.name}
-                    </div>
-                    <div className="badge" title="Votes">
-                      {Number(n.votes ?? 0)} votes
                     </div>
                   </div>
 
@@ -192,16 +231,59 @@ export default function VoteCategoryPage() {
           </div>
 
           <div className="row" style={{ marginTop: 12 }}>
-            <button className="btnSecondary" type="button" onClick={() => void load()} disabled={voting}>
-              Refresh
-            </button>
-            <button className="btn" type="button" disabled={voting || !selectedNomineeId} onClick={submitVote}>
+            <button
+              className="btn"
+              type="button"
+              disabled={voting || !selectedNomineeId}
+              onClick={submitVote}
+            >
               {voting ? "Submitting vote..." : "Vote"}
             </button>
           </div>
         </section>
-      ) : null}
+      )}
     </Shell>
   );
 }
 
+export default function VoteCategoryPage() {
+  const router = useRouter();
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+
+  const [state, setState] = React.useState<YlfState | null>(null);
+  const [connected, setConnected] = React.useState(false);
+
+  React.useEffect(() => {
+    console.log("[VOTE] subscribing to ylf...");
+    const unsubscribe = subscribeYlf((next) => {
+      setState(next);
+      setConnected(true);
+    });
+    return () => {
+      console.log("[VOTE] unsubscribing from ylf");
+      unsubscribe();
+    };
+  }, []);
+
+  const page = state?.page ?? "home";
+
+  if (!connected) {
+    return (
+      <Shell title="Vote" subtitle="Connecting to the live event...">
+        <div className="hint">Please wait...</div>
+      </Shell>
+    );
+  }
+
+  if (page === "category" && state?.category) {
+    return (
+      <CategoryVoteStage
+        apiBase={apiBase}
+        category={state.category}
+        onExit={() => router.push("/register")}
+      />
+    );
+  }
+
+  return <HomeStage />;
+}

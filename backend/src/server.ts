@@ -12,7 +12,7 @@ const app = express();
 const db = getDb();
 
 const PORT = Number(process.env.PORT || 4000);
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
+const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3001";
 
 app.use(
   cors({
