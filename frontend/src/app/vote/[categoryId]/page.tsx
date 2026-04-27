@@ -275,7 +275,7 @@ export default function VoteCategoryPage() {
     );
   }
 
-  if (page === "category" && state?.category) {
+  if ((page === "category" || page === "graph") && state?.category) {
     return (
       <CategoryVoteStage
         apiBase={apiBase}
