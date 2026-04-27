@@ -28,7 +28,7 @@ export function getRtdb(): Database {
   return db;
 }
 
-export type YlfPage = "home" | "category" | "winner" | "graph";
+export type YlfPage = "home" | "category" | "winner" | "graph" | "qr";
 
 export async function setYlfPage(page: YlfPage): Promise<void> {
   const start = Date.now();
@@ -53,6 +53,12 @@ export type YlfNominee = {
 
 export type YlfState = {
   page?: YlfPage;
+  timer?: {
+    categoryId: number;
+    running: boolean;
+    durationSec: number;
+    endsAtMs: number;
+  };
   category?: {
     id: number;
     name: string;
@@ -120,4 +126,23 @@ export function setYlfGraph(category: {
   nominees: YlfNominee[];
 }): Promise<void> {
   return writeYlfCategory("graph", category);
+}
+
+export async function setYlfTimer(timer: {
+  categoryId: number;
+  running: boolean;
+  durationSec: number;
+  endsAtMs: number;
+}): Promise<void> {
+  const start = Date.now();
+  try {
+    const database = getRtdb();
+    await set(ref(database, "ylf/timer"), timer);
+    console.log(
+      `[FIREBASE] ylf/timer set -> categoryId=${timer.categoryId}, running=${timer.running}, durationSec=${timer.durationSec} in ${Date.now() - start}ms`,
+    );
+  } catch (err) {
+    console.error("[FIREBASE] Failed to set ylf/timer:", err);
+    throw err;
+  }
 }

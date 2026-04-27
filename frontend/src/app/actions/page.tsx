@@ -3,9 +3,9 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import styles from "./led-kiosk.module.css";
-import { setYlfCategory, setYlfGraph, setYlfPage } from "@/lib/firebase";
+import { setYlfCategory, setYlfGraph, setYlfPage, setYlfTimer } from "@/lib/firebase";
 
-type ScreenKey = "HOME" | "CATEGORY" | "WINNER";
+type ScreenKey = "HOME" | "CATEGORY" | "WINNER" | "QR";
 
 type EventInfo = {
   name: string;
@@ -32,6 +32,10 @@ type TimerState = {
   running: boolean;
   error?: string;
 };
+
+function nowMs() {
+  return Date.now();
+}
 
 function formatTime(totalSec: number) {
   const s = Math.max(0, Math.floor(totalSec));
@@ -192,10 +196,17 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
       }));
       return;
     }
+    const duration = Math.floor(sec);
     setTimers((p) => ({
       ...p,
-      [categoryId]: { durationSec: Math.floor(sec), remainingSec: Math.floor(sec), running: false },
+      [categoryId]: { durationSec: duration, remainingSec: duration, running: false },
     }));
+    void setYlfTimer({
+      categoryId,
+      running: false,
+      durationSec: duration,
+      endsAtMs: 0,
+    });
   }
 
   function toggleTimer(categoryId: number) {
@@ -207,10 +218,16 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
           [categoryId]: { durationSec: 0, remainingSec: 0, running: false, error: "Set timer first" },
         };
       }
-      if (current.remainingSec <= 0) {
-        return { ...p, [categoryId]: { ...current, remainingSec: current.durationSec, running: true, error: undefined } };
-      }
-      return { ...p, [categoryId]: { ...current, running: !current.running, error: undefined } };
+      const nextRunning = current.remainingSec <= 0 ? true : !current.running;
+      const nextRemaining = current.remainingSec <= 0 ? current.durationSec : current.remainingSec;
+      const endsAtMs = nextRunning ? nowMs() + nextRemaining * 1000 : 0;
+      void setYlfTimer({
+        categoryId,
+        running: nextRunning,
+        durationSec: current.durationSec,
+        endsAtMs,
+      });
+      return { ...p, [categoryId]: { ...current, remainingSec: nextRemaining, running: nextRunning, error: undefined } };
     });
   }
 
@@ -218,6 +235,12 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
     setTimers((p) => {
       const current = p[categoryId];
       if (!current) return p;
+      void setYlfTimer({
+        categoryId,
+        running: false,
+        durationSec: current.durationSec,
+        endsAtMs: 0,
+      });
       return { ...p, [categoryId]: { ...current, running: false } };
     });
   }
@@ -236,6 +259,8 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
     if (next === "HOME") {
       //console.log(`[UI] Screen button -> HOME; pushing ylf/page="home"`);
       void setYlfPage("home");
+    } else if (next === "QR") {
+      void setYlfPage("qr");
     } else if (next === "WINNER") {
       //console.log(`[UI] Screen button -> WINNER; pushing ylf/page="winner"`);
       void setYlfPage("winner");
@@ -496,21 +521,23 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
 
                   <div className="nomineeGrid">
                     {selectedNominees.map((n) => {
-                      const src = nomineePhotoUrl(apiBase, n.photo) || FALLBACK_PHOTO;
                       return (
-                        <div key={n.nominee_id} className="nomineeCard">
-                          <div className="nomineePhotoWrap">
-                            <img
-                              className="nomineePhoto"
-                              src={src}
-                              alt={n.name}
-                              loading="lazy"
-                              onError={(e) => {
-                                e.currentTarget.src = ERROR_PHOTO;
-                              }}
-                            />
+                        <div
+                          key={n.nominee_id}
+                          className="listItem"
+                          style={{
+                            cursor: "default",
+                            padding: "12px 14px",
+                            borderRadius: 12,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 12,
+                          }}
+                        >
+                          <div className="listTitle" style={{ whiteSpace: "normal" }}>
+                            {n.name}
                           </div>
-                          <div className="nomineeName">{n.name}</div>
                         </div>
                       );
                     })}
@@ -625,6 +652,17 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
           title="Winners"
         >
           W
+        </button>
+        <button
+          type="button"
+          className={`${styles.squareBtn} ${screen === "QR" ? styles.squareBtnActive : styles.squareBtnMuted}`}
+          onClick={() => {
+            goToScreen("QR");
+          }}
+          aria-label="QR"
+          title="QR"
+        >
+          QR
         </button>
       </nav>
     </div>

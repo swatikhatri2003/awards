@@ -95,10 +95,12 @@ function HomeStage() {
 function CategoryVoteStage({
   apiBase,
   category,
+  timer,
   onExit,
 }: {
   apiBase: string;
   category: NonNullable<YlfState["category"]>;
+  timer?: YlfState["timer"];
   onExit: () => void;
 }) {
   const nominees = React.useMemo(() => normalizeNominees(category.nominees), [category.nominees]);
@@ -108,6 +110,20 @@ function CategoryVoteStage({
   const [error, setError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState<string | null>(null);
   const [votedNomineeId, setVotedNomineeId] = React.useState<number | null>(null);
+  const [tick, setTick] = React.useState(0);
+
+  function formatMMSS(msLeft: number) {
+    const totalSec = Math.max(0, Math.ceil(msLeft / 1000));
+    const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
+    const ss = String(totalSec % 60).padStart(2, "0");
+    return `${mm}:${ss}`;
+  }
+
+  React.useEffect(() => {
+    if (!timer?.running) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 250);
+    return () => window.clearInterval(id);
+  }, [timer?.running]);
 
   React.useEffect(() => {
     setSelectedNomineeId(null);
@@ -118,8 +134,17 @@ function CategoryVoteStage({
     setVotedNomineeId(typeof prev === "number" ? prev : null);
   }, [category.id]);
 
+  const timerMatches = timer && Number(timer.categoryId) === Number(category.id);
+  const msLeft = timerMatches && timer?.running ? Math.max(0, Number(timer.endsAtMs) - Date.now()) : 0;
+  const votingWindowOpen = !!(timerMatches && timer?.running && msLeft > 0);
+  const showTimer = !!(timerMatches && timer?.running && msLeft > 0);
+  const timerAlert = showTimer && msLeft <= 5000;
+  const blink = timerAlert && tick % 2 === 0;
+  const votingClosedReason =
+    !timerMatches ? "Waiting for admin to start the timer..." : !timer?.running ? "Voting not started yet." : "Voting closed.";
+
   async function submitVote() {
-    if (!selectedNomineeId || votedNomineeId !== null) return;
+    if (!selectedNomineeId || votedNomineeId !== null || !votingWindowOpen) return;
     setVoting(true);
     setError(null);
     setSuccess(null);
@@ -147,11 +172,13 @@ function CategoryVoteStage({
 
   return (
     <Shell
-      title={`Vote: ${category.name}`}
+      title={` ${category.name}`}
       subtitle={
         alreadyVoted
           ? "You have already voted in this category."
-          : "Select one nominee and submit your vote. You can vote only once."
+          : votingWindowOpen
+            ? "Select one nominee and submit your vote."
+            : votingClosedReason
       }
       wide
       right={
@@ -160,6 +187,67 @@ function CategoryVoteStage({
         </button>
       }
     >
+      {showTimer ? (
+        <div
+          aria-live="polite"
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            margin: "6px 0 14px",
+          }}
+        >
+          <div
+            style={{
+              padding: "8px 14px",
+              borderRadius: 999,
+              border: `1px solid ${timerAlert ? "rgba(255,80,80,0.85)" : "rgba(214,180,106,0.35)"}`,
+              background: timerAlert
+                ? blink
+                  ? "rgba(55,0,0,0.55)"
+                  : "rgba(20,0,0,0.45)"
+                : "rgba(0,0,0,0.28)",
+              boxShadow: timerAlert
+                ? "0 14px 40px rgba(255,60,60,0.16), 0 14px 40px rgba(0,0,0,0.45)"
+                : "0 14px 40px rgba(0,0,0,0.45)",
+              backdropFilter: "blur(10px)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 10,
+              transition: "background 220ms ease, border-color 220ms ease",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial, sans-serif",
+                fontSize: 11,
+                fontWeight: 900,
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+                color: timerAlert ? "rgba(255,220,220,0.88)" : "rgba(255,255,255,0.65)",
+                lineHeight: 1,
+              }}
+            >
+              Timer
+            </span>
+            <span
+              style={{
+                fontFamily:
+                  "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace",
+                fontSize: 22,
+                fontWeight: 900,
+                fontVariantNumeric: "tabular-nums",
+                lineHeight: 1,
+                color: "#fff",
+                minWidth: "6ch",
+                textAlign: "center",
+              }}
+            >
+              {formatMMSS(msLeft)}
+            </span>
+          </div>
+        </div>
+      ) : null}
+
       {error ? <div className="error">Error: {friendlyError(error)}</div> : null}
       {success ? <div className="hint">{success}</div> : null}
 
@@ -176,17 +264,16 @@ function CategoryVoteStage({
           </div>
         </section>
       ) : (
-        <section className="panel" aria-label="Nominee voting">
-          <div className="panelHeader">
-            <div className="panelTitle">Nominees</div>
-            <div className="panelMeta">{nominees.length} nominees</div>
-          </div>
+        <section aria-label="Nominee voting">
+          {nominees.length === 0 ? <div className="hint">No nominees in this category yet.</div> : null}
 
-          {nominees.length === 0 ? (
-            <div className="hint">No nominees in this category yet.</div>
-          ) : null}
-
-          <div className="nomineeGrid">
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              gap: 14,
+            }}
+          >
             {nominees.map((n) => {
               const src = nomineePhotoUrl(apiBase, n.photo) || FALLBACK_PHOTO;
               const selected = selectedNomineeId === Number(n.id);
@@ -198,23 +285,26 @@ function CategoryVoteStage({
                       ? "listItem listItemActive selectableCard selectableCardSelected"
                       : "listItem selectableCard"
                   }
-                  style={{ cursor: voting ? "default" : "pointer" }}
+                  style={{
+                    cursor: voting ? "default" : "pointer",
+                    opacity: votingWindowOpen ? 1 : 0.75,
+                    padding: 12,
+                    borderRadius: 16,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                  }}
                 >
-                  <div className="row" style={{ justifyContent: "space-between" }}>
-                    <div className="listTitle" style={{ whiteSpace: "normal", overflow: "visible" }}>
-                      <input
-                        type="radio"
-                        name="nominee"
-                        checked={selected}
-                        disabled={voting}
-                        onChange={() => setSelectedNomineeId(Number(n.id))}
-                        style={{ marginRight: 10 }}
-                      />
-                      {n.name}
-                    </div>
-                  </div>
+                  <input
+                    type="radio"
+                    name="nominee"
+                    checked={selected}
+                    disabled={voting || !votingWindowOpen}
+                    onChange={() => setSelectedNomineeId(Number(n.id))}
+                    style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
+                  />
 
-                  <div style={{ marginTop: 10 }} className="nomineePhotoWrap">
+                  <div className="nomineePhotoWrap" style={{ marginTop: 0 }}>
                     <img
                       className="nomineePhoto"
                       src={src}
@@ -225,16 +315,28 @@ function CategoryVoteStage({
                       }}
                     />
                   </div>
+
+                  <div
+                    style={{
+                      fontWeight: 850,
+                      fontSize: 16,
+                      textAlign: "center",
+                      lineHeight: 1.2,
+                      padding: "0 6px 2px",
+                    }}
+                  >
+                    {n.name}
+                  </div>
                 </label>
               );
             })}
           </div>
 
-          <div className="row" style={{ marginTop: 12 }}>
+          <div className="row" style={{ marginTop: 14 }}>
             <button
               className="btn"
               type="button"
-              disabled={voting || !selectedNomineeId}
+              disabled={voting || !selectedNomineeId || !votingWindowOpen}
               onClick={submitVote}
             >
               {voting ? "Submitting vote..." : "Vote"}
@@ -280,6 +382,7 @@ export default function VoteCategoryPage() {
       <CategoryVoteStage
         apiBase={apiBase}
         category={state.category}
+        timer={state.timer}
         onExit={() => router.push("/register")}
       />
     );

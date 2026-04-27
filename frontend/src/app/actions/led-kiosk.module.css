@@ -103,21 +103,21 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 5px;
+  gap: 10px;
   flex-wrap: nowrap;
 }
 
 .squareBtn {
   /* Match reference: tiny yellow tiles + black glyph */
-  width: clamp(26px, 3.2vw, 30px);
-  height: clamp(26px, 3.2vw, 30px);
+  width: clamp(46px, 5vw, 64px);
+  height: clamp(46px, 5vw, 64px);
   padding: 0;
   border: none;
-  border-radius: 2px;
+  border-radius: 8px;
   background: #ffe41a;
   color: #0a0a0a;
   font-weight: 900;
-  font-size: clamp(11px, 1.35vw, 13px);
+  font-size: clamp(14px, 1.8vw, 20px);
   line-height: 1;
   letter-spacing: 0.02em;
   cursor: pointer;
