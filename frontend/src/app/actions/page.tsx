@@ -102,6 +102,8 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
   const [timerInputSec, setTimerInputSec] = React.useState<Record<number, string>>({});
   const [timers, setTimers] = React.useState<Record<number, TimerState>>({});
 
+  const [graphActiveCategoryId, setGraphActiveCategoryId] = React.useState<number | null>(null);
+
   React.useEffect(() => {
     if (screen !== "CATEGORY" && screen !== "WINNER") return;
     setCategoriesLoading(true);
@@ -267,6 +269,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
         }
       }
 
+      setGraphActiveCategoryId(null);
       void setYlfCategory({
         id: c.category_id,
         name: c.name,
@@ -403,30 +406,79 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
                     <div className="panelTitle" style={{ fontSize: 14 }}>
                       Nominees
                     </div>
-                    <button
-                      type="button"
-                      className={styles.timerBtn}
-                      onClick={() => {
-                        if (!selectedCategory) return;
-                        console.log(
-                          `[UI] Graph button -> category id=${selectedCategory.category_id}, nominees=${selectedNominees.length}`,
-                        );
-                        void setYlfGraph({
-                          id: selectedCategory.category_id,
-                          name: selectedCategory.name,
-                          nominees: selectedNominees.map((n) => ({
-                            id: n.nominee_id,
-                            name: n.name,
-                            photo: n.photo ?? "",
-                            votes: Number(n.votes ?? 0),
-                          })),
-                        });
-                      }}
-                      disabled={!selectedCategory || selectedNomineesLoading}
-                      title="Show vote graph on screen"
-                    >
-                      Graph
-                    </button>
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <button
+                        type="button"
+                        className={styles.timerBtn}
+                        onClick={() => {
+                          if (!selectedCategory) return;
+                          console.log(
+                            `[UI] Graph button -> category id=${selectedCategory.category_id}, nominees=${selectedNominees.length}`,
+                          );
+                          void setYlfGraph({
+                            id: selectedCategory.category_id,
+                            name: selectedCategory.name,
+                            nominees: selectedNominees.map((n) => ({
+                              id: n.nominee_id,
+                              name: n.name,
+                              photo: n.photo ?? "",
+                              votes: Number(n.votes ?? 0),
+                            })),
+                          });
+                          setGraphActiveCategoryId(selectedCategory.category_id);
+                        }}
+                        disabled={
+                          !selectedCategory ||
+                          selectedNomineesLoading ||
+                          graphActiveCategoryId === selectedCategory?.category_id
+                        }
+                        title={
+                          graphActiveCategoryId === selectedCategory?.category_id
+                            ? "Graph is live on screen"
+                            : "Show vote graph on screen"
+                        }
+                      >
+                        Graph
+                      </button>
+                      {selectedCategory && graphActiveCategoryId === selectedCategory.category_id ? (
+                        <button
+                          type="button"
+                          className={styles.timerBtn}
+                          onClick={() => {
+                            if (!selectedCategory) return;
+                            console.log(
+                              `[UI] Graph close -> reverting to category id=${selectedCategory.category_id}`,
+                            );
+                            void setYlfCategory({
+                              id: selectedCategory.category_id,
+                              name: selectedCategory.name,
+                              nominees: selectedNominees.map((n) => ({
+                                id: n.nominee_id,
+                                name: n.name,
+                                photo: n.photo ?? "",
+                                votes: Number(n.votes ?? 0),
+                              })),
+                            });
+                            setGraphActiveCategoryId(null);
+                          }}
+                          aria-label="Close graph and show category"
+                          title="Close graph (back to category)"
+                          style={{
+                            width: 32,
+                            minWidth: 32,
+                            padding: 0,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontWeight: 900,
+                            fontSize: 16,
+                            lineHeight: 1,
+                          }}
+                        >
+                          ×
+                        </button>
+                      ) : null}
+                    </div>
                     <div className="panelMeta">
                       {selectedNomineesLoading
                         ? "Loading..."
