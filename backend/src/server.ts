@@ -5,6 +5,8 @@ import path from "node:path";
 import type { RowDataPacket } from "mysql2/promise";
 import { z } from "zod";
 import { getDb } from "./db";
+import { sendOtpEmail } from "./mailer";
+import { sendWhatsappOtp } from "./whatsapp";
 
 dotenv.config();
 
@@ -161,17 +163,23 @@ app.post("/auth/register", async (req, res) => {
     return res.status(500).json({ ok: false, error: "DB_ERROR" });
   }
 
-  // For now: simulate sending OTP via Email/WhatsApp/SMS
-  // Replace these logs with real integrations (Nodemailer / Twilio / WhatsApp provider).
-  console.log(`[OTP] email=${email} mobile=${mobile} otp=${otp}`);
+  let emailOk = false;
+  try {
+    await sendOtpEmail({ to: email, otp, name });
+    emailOk = true;
+  } catch (e) {
+    console.warn("[Email] OTP not sent");
+  }
+
+  const whatsappOk = await sendWhatsappOtp({ mobile, username: name, otp });
 
   return res.json({
     ok: true,
     next: "VERIFY_OTP",
     otp_sent_to: {
-      email: true,
-      whatsapp: true,
-      sms: true,
+      email: emailOk,
+      whatsapp: whatsappOk,
+      sms: false,
     },
   });
 });
