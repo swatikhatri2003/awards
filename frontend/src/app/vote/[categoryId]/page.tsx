@@ -198,8 +198,8 @@ function CategoryVoteStage({
         >
           <div
             style={{
-              padding: "8px 14px",
-              borderRadius: 999,
+              padding: "10px 14px",
+              borderRadius: 14,
               border: `1px solid ${timerAlert ? "rgba(255,80,80,0.85)" : "rgba(214,180,106,0.35)"}`,
               background: timerAlert
                 ? blink
@@ -214,6 +214,9 @@ function CategoryVoteStage({
               alignItems: "center",
               gap: 10,
               transition: "background 220ms ease, border-color 220ms ease",
+              width: "100%",
+              maxWidth: 520,
+              justifyContent: "center",
             }}
           >
             <span

@@ -327,15 +327,21 @@
     bottom: 8px;
   }
 
+  .timerCard {
+    /* Lift timer controls above the larger mobile dock */
+    bottom: calc(8px + 88px + env(safe-area-inset-bottom, 0px));
+  }
+
   .timerHud {
-    left: 50%;
-    right: auto;
-    top: calc(10px + env(safe-area-inset-top, 0px));
-    transform: translateX(-50%);
-    padding: 10px 14px;
+    left: 12px;
+    right: 12px;
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    transform: none;
+    padding: 12px 14px;
     font-size: 18px;
-    border-radius: 999px;
-    max-width: calc(100vw - 24px);
+    border-radius: 14px;
+    width: auto;
+    max-width: none;
     text-align: center;
   }
 }
