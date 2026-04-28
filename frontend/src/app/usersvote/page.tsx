@@ -26,9 +26,41 @@ type Nominee = {
   nominee_id: number;
   name: string;
   photo?: string;
+  description?: string | null;
   category_id: number;
   votes?: number;
 };
+
+function parseDescription(raw?: string | null): {
+  tagline: string;
+  bullets: string[];
+} {
+  const text = (raw || "").replace(/\r\n?/g, "\n").trim();
+  if (!text) return { tagline: "", bullets: [] };
+
+  // If author used `*`, `-`, or `•` markers, treat them as bullets.
+  if (/^[\*\-•]\s+/m.test(text)) {
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const tagLines: string[] = [];
+    const bullets: string[] = [];
+    for (const line of lines) {
+      const m = line.match(/^[\*\-•]\s*(.+)$/);
+      if (m) bullets.push(m[1].trim());
+      else if (bullets.length === 0) tagLines.push(line);
+      else bullets.push(line);
+    }
+    return { tagline: tagLines.join(" "), bullets };
+  }
+
+  // No markers: treat blank-line separated paragraphs as items.
+  // First paragraph = tagline, rest = bullets.
+  const paragraphs = text
+    .split(/\n\s*\n+/)
+    .map((p) => p.replace(/\s*\n\s*/g, " ").trim())
+    .filter(Boolean);
+  if (paragraphs.length <= 1) return { tagline: paragraphs[0] || "", bullets: [] };
+  return { tagline: paragraphs[0], bullets: paragraphs.slice(1) };
+}
 
 const PHOTO_BASE_URL =
   process.env.NEXT_PUBLIC_PHOTO_BASE_URL ||
@@ -424,9 +456,9 @@ export default function UsersVotePage() {
                       padding: "10px 14px",
                       borderRadius: 14,
                       display: "flex",
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 14,
+                      flexDirection: "column",
+                      alignItems: "stretch",
+                      gap: 8,
                       position: "relative",
                     }}
                   >
@@ -441,65 +473,111 @@ export default function UsersVotePage() {
 
                     <div
                       style={{
-                        width: 56,
-                        height: 56,
-                        flex: "0 0 auto",
-                        borderRadius: "50%",
-                        overflow: "hidden",
-                        background: "#111424",
-                        border: "1px solid rgba(255,255,255,0.08)",
+                        display: "flex",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 12,
                       }}
                     >
-                      <img
-                        src={src}
-                        alt={n.name}
-                        loading="lazy"
-                        onError={(e) => {
-                          e.currentTarget.src = ERROR_PHOTO;
-                        }}
+                      <div
                         style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                          display: "block",
-                        }}
-                      />
-                    </div>
-
-                    <div
-                      style={{
-                        fontWeight: 700,
-                        fontSize: 16,
-                        lineHeight: 1.25,
-                        flex: 1,
-                        minWidth: 0,
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                        overflow: "hidden",
-                        wordBreak: "break-word",
-                      }}
-                    >
-                      {n.name}
-                    </div>
-
-                    {isVotedFor ? (
-                      <span
-                        aria-hidden="true"
-                        style={{
+                          width: 56,
+                          height: 56,
                           flex: "0 0 auto",
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: "#0b1020",
-                          background: "linear-gradient(135deg, #fcd34d, #f59e0b)",
-                          padding: "4px 10px",
-                          borderRadius: 999,
-                          letterSpacing: "0.02em",
+                          borderRadius: "50%",
+                          overflow: "hidden",
+                          background: "#111424",
+                          border: "1px solid rgba(255,255,255,0.08)",
                         }}
                       >
-                        ✓
-                      </span>
-                    ) : null}
+                        <img
+                          src={src}
+                          alt={n.name}
+                          loading="lazy"
+                          onError={(e) => {
+                            e.currentTarget.src = ERROR_PHOTO;
+                          }}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                            display: "block",
+                          }}
+                        />
+                      </div>
+
+                      <div
+                        style={{
+                          fontWeight: 800,
+                          fontSize: 18,
+                          lineHeight: 1.2,
+                          flex: 1,
+                          minWidth: 0,
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {n.name}
+                      </div>
+
+                      {isVotedFor ? (
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            flex: "0 0 auto",
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: "#0b1020",
+                            background: "linear-gradient(135deg, #fcd34d, #f59e0b)",
+                            padding: "4px 10px",
+                            borderRadius: 999,
+                            letterSpacing: "0.02em",
+                          }}
+                        >
+                          ✓
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {(() => {
+                      const desc = parseDescription(n.description);
+                      if (!desc.tagline && desc.bullets.length === 0) return null;
+                      return (
+                        <div style={{ width: "100%" }}>
+                          {desc.tagline ? (
+                            <div
+                              style={{
+                                fontSize: 11,
+                                lineHeight: 1.3,
+                                fontStyle: "italic",
+                                color: "rgba(255,255,255,0.78)",
+                                wordBreak: "break-word",
+                                marginBottom: desc.bullets.length > 0 ? 4 : 0,
+                              }}
+                            >
+                              {desc.tagline}
+                            </div>
+                          ) : null}
+                          {desc.bullets.length > 0 ? (
+                            <ul
+                              style={{
+                                listStyle: "disc",
+                                paddingLeft: 16,
+                                margin: 0,
+                                fontSize: 11,
+                                lineHeight: 1.3,
+                                color: "rgba(255,255,255,0.85)",
+                              }}
+                            >
+                              {desc.bullets.map((b, i) => (
+                                <li key={i} style={{ marginBottom: 1 }}>
+                                  {b}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
                   </label>
                 );
               })}

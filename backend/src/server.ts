@@ -49,13 +49,37 @@ app.get("/api/categories", async (_req, res) => {
 app.get("/api/nominees", async (_req, res) => {
   try {
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT nominee_id, photo, name, category_id, votes
+      `SELECT nominee_id, photo, name, description, category_id, votes
        FROM nominee
        ORDER BY category_id ASC, nominee_id ASC`,
     );
     return res.json({ ok: true, nominees: rows });
   } catch (e) {
     console.error("all nominees db error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.get("/api/nominees/:nomineeId", async (req, res) => {
+  const nomineeId = Number(req.params.nomineeId);
+  if (!Number.isFinite(nomineeId) || nomineeId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_NOMINEE_ID" });
+  }
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT nominee_id, photo, name, description, category_id, votes
+       FROM nominee
+       WHERE nominee_id = :nominee_id
+       LIMIT 1`,
+      { nominee_id: nomineeId },
+    );
+    const nominee = rows[0];
+    if (!nominee) {
+      return res.status(404).json({ ok: false, error: "NOMINEE_NOT_FOUND" });
+    }
+    return res.json({ ok: true, nominee });
+  } catch (e) {
+    console.error("nominee detail db error", e);
     return res.status(500).json({ ok: false, error: "DB_ERROR" });
   }
 });
