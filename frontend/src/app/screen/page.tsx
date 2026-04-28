@@ -10,16 +10,19 @@ const FALLBACK_PHOTO =
 const ERROR_PHOTO =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23111424'/%3E%3Ctext x='50%25' y='50%25' fill='%23aab3c5' font-size='14' text-anchor='middle' dominant-baseline='middle'%3EImage error%3C/text%3E%3C/svg%3E";
 
-function nomineePhotoUrl(apiBase: string, photo?: string) {
+const PHOTO_BASE_URL =
+  process.env.NEXT_PUBLIC_PHOTO_BASE_URL ||
+  "https://mscsuper.blr1.digitaloceanspaces.com/vdimg";
+
+function nomineePhotoUrl(_apiBase: string, photo?: string) {
   const p = (photo || "").trim();
   if (!p) return "";
   if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
-  // `apiBase` includes `/api` now; uploads are served from the server root.
-  const base = apiBase.replace(/\/+$/, "").replace(/\/api$/, "");
   const normalized = p.replace(/\\/g, "/");
   const last = normalized.split("/").filter(Boolean).pop() || "";
   const safeFile = encodeURIComponent(last);
-  return `${base}/uploads/nominee/${safeFile}`;
+  const base = PHOTO_BASE_URL.replace(/\/+$/, "");
+  return `${base}/${safeFile}`;
 }
 
 function normalizeNominees(

@@ -69,6 +69,8 @@ export default function RegisterPage() {
 
   return (
     <Shell
+      bare
+      showLogos
       title="Register"
       subtitle="Enter your details. We’ll send an OTP to your email, WhatsApp, and SMS for verification."
     >
@@ -99,13 +101,20 @@ export default function RegisterPage() {
           inputMode="tel"
           maxLength={10}
         />
-        <Field
-          label="YLF Membership Number"
-          value={form.membership_number}
-          onChange={(v) => setForm((s) => ({ ...s, membership_number: v }))}
-          placeholder="Optional"
-          maxLength={20}
-        />
+        <label className="field">
+          <div className="label">Membership Type</div>
+          <select
+            className="input"
+            value={form.membership_number}
+            onChange={(e) =>
+              setForm((s) => ({ ...s, membership_number: e.target.value }))
+            }
+          >
+            <option value="">Select membership type</option>
+            <option value="0">YLF Member</option>
+            <option value="1">YLF Spouse Member</option>
+          </select>
+        </label>
 
         {error ? <div className="error">Error: {error}</div> : null}
 

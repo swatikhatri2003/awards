@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Shell } from "../_components/Shell";
 import {
@@ -29,15 +30,19 @@ type Nominee = {
   votes?: number;
 };
 
-function nomineePhotoUrl(apiBase: string, photo?: string) {
+const PHOTO_BASE_URL =
+  process.env.NEXT_PUBLIC_PHOTO_BASE_URL ||
+  "https://mscsuper.blr1.digitaloceanspaces.com/vdimg";
+
+function nomineePhotoUrl(_apiBase: string, photo?: string) {
   const p = (photo || "").trim();
   if (!p) return "";
   if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
-  const base = apiBase.replace(/\/+$/, "").replace(/\/api$/, "");
   const normalized = p.replace(/\\/g, "/");
   const last = normalized.split("/").filter(Boolean).pop() || "";
   const safeFile = encodeURIComponent(last);
-  return `${base}/uploads/nominee/${safeFile}`;
+  const base = PHOTO_BASE_URL.replace(/\/+$/, "");
+  return `${base}/${safeFile}`;
 }
 
 function friendlyError(code: string) {
@@ -74,6 +79,11 @@ export default function UsersVotePage() {
   const [voted, setVoted] = React.useState(false);
   const [votedNomineeId, setVotedNomineeId] = React.useState<number | null>(null);
   const [done, setDone] = React.useState(false);
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   React.useEffect(() => {
     const u = readCurrentUser();
@@ -236,9 +246,112 @@ export default function UsersVotePage() {
         ? "Loading..."
         : "No categories";
 
+  const backDisabled = activeIdx === 0 && !done;
+  const nextDisabled = done || !voted;
+  const voteDisabled =
+    done ||
+    voting ||
+    voted ||
+    !selectedNomineeId ||
+    !activeCategory ||
+    nominees.length === 0;
+
+  const bottomBarStyle: React.CSSProperties = {
+    position: "fixed",
+    left: "calc(12px + env(safe-area-inset-left, 0px))",
+    right: "calc(12px + env(safe-area-inset-right, 0px))",
+    bottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+    zIndex: 1000,
+    pointerEvents: "none",
+  };
+  const sharedBtnStyle: React.CSSProperties = {
+    minWidth: 0,
+    height: 44,
+    padding: "0 8px",
+    fontSize: 14,
+    fontWeight: 700,
+    borderRadius: 12,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+    pointerEvents: "auto",
+    whiteSpace: "nowrap",
+  };
+  const sideBtnStyle: React.CSSProperties = {
+    ...sharedBtnStyle,
+    flex: "0 0 22%",
+    fontSize: 13,
+    padding: "0 6px",
+    backgroundColor: "#1f2a44",
+    backgroundImage: "none",
+    color: "#fff",
+    border: "1px solid rgba(255,255,255,0.22)",
+  };
+  const sideBtnDisabledStyle: React.CSSProperties = {
+    backgroundColor: "#0f1626",
+    backgroundImage: "none",
+    color: "rgba(255,255,255,0.45)",
+    border: "1px solid rgba(255,255,255,0.10)",
+  };
+  const voteBtnStyle: React.CSSProperties = {
+    ...sharedBtnStyle,
+    flex: 1,
+  };
+
+  const bottomBar = (
+    <div style={bottomBarStyle}>
+      <button
+        type="button"
+        disabled={backDisabled}
+        onClick={prevCategory}
+        style={{
+          ...sideBtnStyle,
+          ...(backDisabled ? sideBtnDisabledStyle : null),
+          opacity: 1,
+          cursor: backDisabled ? "not-allowed" : "pointer",
+        }}
+      >
+        ‹ Back
+      </button>
+
+      <button
+        className="btn"
+        type="button"
+        disabled={voteDisabled}
+        onClick={submitVote}
+        style={{
+          ...voteBtnStyle,
+          opacity: voteDisabled ? 0.85 : 1,
+          cursor: voteDisabled ? "not-allowed" : "pointer",
+        }}
+      >
+        {voted ? "Voted" : voting ? "Voting..." : "Vote"}
+      </button>
+
+      <button
+        type="button"
+        disabled={nextDisabled}
+        onClick={nextCategory}
+        style={{
+          ...sideBtnStyle,
+          ...(nextDisabled ? sideBtnDisabledStyle : null),
+          opacity: 1,
+          cursor: nextDisabled ? "not-allowed" : "pointer",
+        }}
+      >
+        {isLast ? "Finish ›" : "Next ›"}
+      </button>
+    </div>
+  );
+
   return (
+    <>
     <Shell
       wide
+      bare
+      showLogos
       right={
         user ? (
           <button className="linkBtn" type="button" onClick={logout}>
@@ -288,9 +401,9 @@ export default function UsersVotePage() {
           ) : (
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                gap: 14,
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
               }}
             >
               {nominees.map((n) => {
@@ -308,11 +421,13 @@ export default function UsersVotePage() {
                     style={{
                       cursor: voted || voting ? "default" : "pointer",
                       opacity: voted && !isVotedFor ? 0.55 : 1,
-                      padding: 12,
-                      borderRadius: 16,
+                      padding: "10px 14px",
+                      borderRadius: 14,
                       display: "flex",
-                      flexDirection: "column",
-                      gap: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 14,
+                      position: "relative",
                     }}
                   >
                     <input
@@ -324,29 +439,67 @@ export default function UsersVotePage() {
                       style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
                     />
 
-                    <div className="nomineePhotoWrap" style={{ marginTop: 0 }}>
+                    <div
+                      style={{
+                        width: 56,
+                        height: 56,
+                        flex: "0 0 auto",
+                        borderRadius: "50%",
+                        overflow: "hidden",
+                        background: "#111424",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                      }}
+                    >
                       <img
-                        className="nomineePhoto"
                         src={src}
                         alt={n.name}
                         loading="lazy"
                         onError={(e) => {
                           e.currentTarget.src = ERROR_PHOTO;
                         }}
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                          display: "block",
+                        }}
                       />
                     </div>
 
                     <div
                       style={{
-                        fontWeight: 850,
+                        fontWeight: 700,
                         fontSize: 16,
-                        textAlign: "center",
-                        lineHeight: 1.2,
-                        padding: "0 6px 2px",
+                        lineHeight: 1.25,
+                        flex: 1,
+                        minWidth: 0,
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                        wordBreak: "break-word",
                       }}
                     >
                       {n.name}
                     </div>
+
+                    {isVotedFor ? (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          flex: "0 0 auto",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: "#0b1020",
+                          background: "linear-gradient(135deg, #fcd34d, #f59e0b)",
+                          padding: "4px 10px",
+                          borderRadius: 999,
+                          letterSpacing: "0.02em",
+                        }}
+                      >
+                        ✓
+                      </span>
+                    ) : null}
                   </label>
                 );
               })}
@@ -358,82 +511,11 @@ export default function UsersVotePage() {
               Vote recorded for &quot;{votedNominee.name}&quot;.
             </div>
           ) : null}
-
-          <div className="row" style={{ marginTop: 14 }}>
-            <button
-              className="btn btnLg"
-              type="button"
-              disabled={voting || voted || !selectedNomineeId || nominees.length === 0}
-              onClick={submitVote}
-            >
-              {voted ? "Voted" : voting ? "Submitting vote..." : "Vote"}
-            </button>
-          </div>
         </section>
       )}
 
-      <div
-        style={{
-          position: "fixed",
-          left: "calc(16px + env(safe-area-inset-left, 0px))",
-          right: "calc(16px + env(safe-area-inset-right, 0px))",
-          bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 12,
-          zIndex: 50,
-          pointerEvents: "none",
-        }}
-      >
-        {(() => {
-          const backDisabled = activeIdx === 0 && !done;
-          const nextDisabled = done || !voted;
-          const sharedStyle: React.CSSProperties = {
-            width: "20vw",
-            minWidth: 96,
-            maxWidth: 200,
-            height: 40,
-            padding: "0 14px",
-            fontSize: 14,
-            fontWeight: 700,
-            borderRadius: 12,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-            pointerEvents: "auto",
-          };
-          return (
-            <>
-              <button
-                className="btnSecondary"
-                type="button"
-                disabled={backDisabled}
-                onClick={prevCategory}
-                style={{
-                  ...sharedStyle,
-                  opacity: backDisabled ? 0.4 : 1,
-                  cursor: backDisabled ? "not-allowed" : "pointer",
-                }}
-              >
-                ‹ Back
-              </button>
-
-              <button
-                className="btn"
-                type="button"
-                disabled={nextDisabled}
-                onClick={nextCategory}
-                style={{
-                  ...sharedStyle,
-                  opacity: nextDisabled ? 0.4 : 1,
-                  cursor: nextDisabled ? "not-allowed" : "pointer",
-                }}
-              >
-                {isLast ? "Finish ›" : "Next ›"}
-              </button>
-            </>
-          );
-        })()}
-      </div>
     </Shell>
+    {mounted ? createPortal(bottomBar, document.body) : null}
+    </>
   );
 }

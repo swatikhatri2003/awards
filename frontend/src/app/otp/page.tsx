@@ -75,6 +75,8 @@ export default function OtpPage() {
 
   return (
     <Shell
+      bare
+      showLogos
       title="Verify OTP"
       subtitle={
         pending

@@ -85,6 +85,15 @@ html {
   min-height: calc(100vh - clamp(32px, 6vw, 80px));
 }
 
+.cardBare {
+  width: 100%;
+  max-width: 720px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: clamp(8px, 2vw, 16px) 0;
+}
+
 .brandRow {
   display: flex;
   align-items: flex-start;

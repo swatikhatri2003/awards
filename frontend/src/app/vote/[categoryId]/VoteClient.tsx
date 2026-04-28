@@ -13,16 +13,19 @@ const ERROR_PHOTO =
 
 const VOTED_STORAGE_KEY = "ylf_voted_categories";
 
-function nomineePhotoUrl(apiBase: string, photo?: string) {
+const PHOTO_BASE_URL =
+  process.env.NEXT_PUBLIC_PHOTO_BASE_URL ||
+  "https://mscsuper.blr1.digitaloceanspaces.com/vdimg";
+
+function nomineePhotoUrl(_apiBase: string, photo?: string) {
   const p = (photo || "").trim();
   if (!p) return "";
   if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
-  // `apiBase` includes `/api` now; uploads are served from the server root.
-  const base = apiBase.replace(/\/+$/, "").replace(/\/api$/, "");
   const normalized = p.replace(/\\/g, "/");
   const last = normalized.split("/").filter(Boolean).pop() || "";
   const safeFile = encodeURIComponent(last);
-  return `${base}/uploads/nominee/${safeFile}`;
+  const base = PHOTO_BASE_URL.replace(/\/+$/, "");
+  return `${base}/${safeFile}`;
 }
 
 function normalizeNominees(
