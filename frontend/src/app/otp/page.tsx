@@ -4,6 +4,7 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import { Field, Shell } from "../_components/Shell";
 import { clearPendingRegistration, readPendingRegistration } from "../_lib/authSession";
+import { writeCurrentUser } from "../_lib/userSession";
 
 function normalizeMobile(v: string) {
   return v.replace(/[^\d]/g, "");
@@ -33,7 +34,7 @@ export default function OtpPage() {
   const [otp, setOtp] = React.useState("");
   const [pending, setPending] = React.useState<ReturnType<typeof readPendingRegistration>>(null);
 
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000/api";
 
   React.useEffect(() => {
     const p = readPendingRegistration();
@@ -60,6 +61,9 @@ export default function OtpPage() {
       if (!res.ok) throw new Error(friendlyError(data?.error || "OTP_VERIFY_FAILED"));
 
       clearPendingRegistration();
+      if (data?.person?.email && data?.person?.mobile) {
+        writeCurrentUser(data.person);
+      }
 
       const catRes = await fetch(`${apiBase}/categories`);
       const catData = await catRes.json().catch(() => null);

@@ -84,6 +84,11 @@ export function subscribeYlf(callback: (state: YlfState | null) => void): () => 
   return unsubscribe;
 }
 
+export async function setYlfNomineeVotes(params: { nomineeId: number; votes: number }): Promise<void> {
+  const database = getRtdb();
+  await set(ref(database, `ylf/category/nominees/${params.nomineeId}/votes`), params.votes);
+}
+
 async function writeYlfCategory(
   page: Extract<YlfPage, "category" | "graph">,
   category: { id: number; name: string; nominees: YlfNominee[] },

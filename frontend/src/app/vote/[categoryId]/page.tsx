@@ -3,7 +3,8 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { Shell } from "../../_components/Shell";
-import { subscribeYlf, type YlfNominee, type YlfState } from "@/lib/firebase";
+import { setYlfNomineeVotes, subscribeYlf, type YlfNominee, type YlfState } from "@/lib/firebase";
+import { readCurrentUser } from "../../_lib/userSession";
 
 const FALLBACK_PHOTO =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23111424'/%3E%3Ctext x='50%25' y='50%25' fill='%23aab3c5' font-size='14' text-anchor='middle' dominant-baseline='middle'%3ENo Photo%3C/text%3E%3C/svg%3E";
@@ -16,7 +17,8 @@ function nomineePhotoUrl(apiBase: string, photo?: string) {
   const p = (photo || "").trim();
   if (!p) return "";
   if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
-  const base = apiBase.replace(/\/+$/, "");
+  // `apiBase` includes `/api` now; uploads are served from the server root.
+  const base = apiBase.replace(/\/+$/, "").replace(/\/api$/, "");
   const normalized = p.replace(/\\/g, "/");
   const last = normalized.split("/").filter(Boolean).pop() || "";
   const safeFile = encodeURIComponent(last);
@@ -149,9 +151,29 @@ function CategoryVoteStage({
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch(`${apiBase}/nominees/${selectedNomineeId}/vote`, { method: "POST" });
+      const currentUser = readCurrentUser();
+      const res = await fetch(`${apiBase}/nominees/${selectedNomineeId}/vote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          voter: currentUser
+            ? {
+                userId: currentUser.id,
+                email: currentUser.email,
+                mobile: currentUser.mobile,
+                membershipNumber: currentUser.membershipNumber,
+              }
+            : null,
+        }),
+      });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(friendlyError(data?.error || "VOTE_FAILED"));
+
+      const nextVotes = Number(data?.nominee?.votes);
+      if (Number.isFinite(nextVotes)) {
+        // Update live screen data source immediately (graph reads from RTDB "ylf").
+        await setYlfNomineeVotes({ nomineeId: selectedNomineeId, votes: nextVotes });
+      }
 
       const map = readVotedMap();
       map[String(category.id)] = selectedNomineeId;
@@ -353,7 +375,7 @@ function CategoryVoteStage({
 
 export default function VoteCategoryPage() {
   const router = useRouter();
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000/api";
 
   const [state, setState] = React.useState<YlfState | null>(null);
   const [connected, setConnected] = React.useState(false);

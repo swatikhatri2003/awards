@@ -28,11 +28,11 @@ app.use(express.json());
 // This assumes the server is started with CWD = backend/ (npm run dev/start).
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
-app.get("/health", (_req, res) => {
+app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/categories", async (_req, res) => {
+app.get("/api/categories", async (_req, res) => {
   try {
     const [rows] = await db.execute<RowDataPacket[]>(
       `SELECT category_id, name, winner_nominee_id
@@ -46,7 +46,7 @@ app.get("/categories", async (_req, res) => {
   }
 });
 
-app.get("/categories/:categoryId/nominees", async (req, res) => {
+app.get("/api/categories/:categoryId/nominees", async (req, res) => {
   const categoryId = Number(req.params.categoryId);
   if (!Number.isFinite(categoryId) || categoryId <= 0) {
     return res.status(400).json({ ok: false, error: "INVALID_CATEGORY_ID" });
@@ -67,7 +67,7 @@ app.get("/categories/:categoryId/nominees", async (req, res) => {
   }
 });
 
-app.post("/nominees/:nomineeId/vote", async (req, res) => {
+app.post("/api/nominees/:nomineeId/vote", async (req, res) => {
   const nomineeId = Number(req.params.nomineeId);
   if (!Number.isFinite(nomineeId) || nomineeId <= 0) {
     return res.status(400).json({ ok: false, error: "INVALID_NOMINEE_ID" });
@@ -118,7 +118,7 @@ function generateOtp() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-app.post("/auth/register", async (req, res) => {
+app.post("/api/auth/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ ok: false, error: "INVALID_INPUT" });
@@ -194,7 +194,7 @@ const verifySchema = z.object({
   otp: z.string().regex(/^\d{6}$/),
 });
 
-app.post("/auth/verify", async (req, res) => {
+app.post("/api/auth/verify", async (req, res) => {
   const parsed = verifySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ ok: false, error: "INVALID_INPUT" });

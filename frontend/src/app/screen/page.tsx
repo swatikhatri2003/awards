@@ -14,7 +14,8 @@ function nomineePhotoUrl(apiBase: string, photo?: string) {
   const p = (photo || "").trim();
   if (!p) return "";
   if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
-  const base = apiBase.replace(/\/+$/, "");
+  // `apiBase` includes `/api` now; uploads are served from the server root.
+  const base = apiBase.replace(/\/+$/, "").replace(/\/api$/, "");
   const normalized = p.replace(/\\/g, "/");
   const last = normalized.split("/").filter(Boolean).pop() || "";
   const safeFile = encodeURIComponent(last);
@@ -325,6 +326,6 @@ function ScreenView({ apiBase }: { apiBase: string }) {
 }
 
 export default function ScreenPage() {
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000/api";
   return <ScreenView apiBase={apiBase} />;
 }
