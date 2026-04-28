@@ -46,26 +46,40 @@ app.get("/api/categories", async (_req, res) => {
   }
 });
 
-app.get("/api/categories/:categoryId/nominees", async (req, res) => {
-  const categoryId = Number(req.params.categoryId);
-  if (!Number.isFinite(categoryId) || categoryId <= 0) {
-    return res.status(400).json({ ok: false, error: "INVALID_CATEGORY_ID" });
-  }
-
+app.get("/api/nominees", async (_req, res) => {
   try {
     const [rows] = await db.execute<RowDataPacket[]>(
       `SELECT nominee_id, photo, name, category_id, votes
        FROM nominee
-       WHERE category_id = :category_id
-       ORDER BY nominee_id ASC`,
-      { category_id: categoryId },
+       ORDER BY category_id ASC, nominee_id ASC`,
     );
     return res.json({ ok: true, nominees: rows });
   } catch (e) {
-    console.error("nominees db error", e);
+    console.error("all nominees db error", e);
     return res.status(500).json({ ok: false, error: "DB_ERROR" });
   }
 });
+
+// app.get("/api/categories/:categoryId/nominees", async (req, res) => {
+//   const categoryId = Number(req.params.categoryId);
+//   if (!Number.isFinite(categoryId) || categoryId <= 0) {
+//     return res.status(400).json({ ok: false, error: "INVALID_CATEGORY_ID" });
+//   }
+
+//   try {
+//     const [rows] = await db.execute<RowDataPacket[]>(
+//       `SELECT nominee_id, photo, name, category_id, votes
+//        FROM nominee
+//        WHERE category_id = :category_id
+//        ORDER BY nominee_id ASC`,
+//       { category_id: categoryId },
+//     );
+//     return res.json({ ok: true, nominees: rows });
+//   } catch (e) {
+//     console.error("nominees db error", e);
+//     return res.status(500).json({ ok: false, error: "DB_ERROR" });
+//   }
+// });
 
 app.post("/api/nominees/:nomineeId/vote", async (req, res) => {
   const nomineeId = Number(req.params.nomineeId);
@@ -247,6 +261,101 @@ app.post("/api/auth/verify", async (req, res) => {
     });
   } catch (e) {
     console.error("verify db error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+const castVoteSchema = z.object({
+  uid: z.coerce.number().int().positive(),
+  catid: z.coerce.number().int().positive(),
+  nomid: z.coerce.number().int().positive(),
+});
+
+app.post("/api/votes", async (req, res) => {
+  const parsed = castVoteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT" });
+  }
+
+  const { uid, catid, nomid } = parsed.data;
+
+  try {
+    // Sanity check: nominee belongs to the given category.
+    const [nomRows] = await db.execute<RowDataPacket[]>(
+      `SELECT nominee_id, name, category_id
+       FROM nominee
+       WHERE nominee_id = :nominee_id
+       LIMIT 1`,
+      { nominee_id: nomid },
+    );
+    const nominee = nomRows[0];
+    if (!nominee) {
+      return res.status(404).json({ ok: false, error: "NOMINEE_NOT_FOUND" });
+    }
+    if (Number(nominee.category_id) !== catid) {
+      return res.status(400).json({ ok: false, error: "NOMINEE_CATEGORY_MISMATCH" });
+    }
+
+    // Has this user already voted in this category?
+    const [existingRows] = await db.execute<RowDataPacket[]>(
+      `SELECT id, nominee_id
+       FROM votes
+       WHERE user_id = :uid AND category_id = :catid
+       LIMIT 1`,
+      { uid, catid },
+    );
+    const existing = existingRows[0];
+    if (existing) {
+      return res.status(409).json({
+        ok: false,
+        error: "ALREADY_VOTED",
+        message: "You have already voted in this category.",
+        votedNomineeId: Number(existing.nominee_id),
+      });
+    }
+
+    await db.execute(
+      `INSERT INTO votes (user_id, category_id, nominee_id)
+       VALUES (:uid, :catid, :nomid)`,
+      { uid, catid, nomid },
+    );
+
+    const [updateResult] = await db.execute(
+      `UPDATE nominee
+       SET votes = COALESCE(votes, 0) + 1
+       WHERE nominee_id = :nominee_id`,
+      { nominee_id: nomid },
+    );
+    // @ts-expect-error mysql2 result shape varies by config
+    const affected = Number(updateResult?.affectedRows ?? 0);
+    if (affected <= 0) {
+      return res.status(404).json({ ok: false, error: "NOMINEE_NOT_FOUND" });
+    }
+
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT nominee_id, photo, name, category_id, votes
+       FROM nominee
+       WHERE nominee_id = :nominee_id
+       LIMIT 1`,
+      { nominee_id: nomid },
+    );
+
+    return res.json({
+      ok: true,
+      message: "Vote recorded.",
+      nominee: rows[0] ?? null,
+    });
+  } catch (e: unknown) {
+    // If the DB has UNIQUE(user_id, category_id), a race can still hit a duplicate.
+    const code = (e as { code?: string } | null)?.code;
+    if (code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        ok: false,
+        error: "ALREADY_VOTED",
+        message: "You have already voted in this category.",
+      });
+    }
+    console.error("cast vote db error", e);
     return res.status(500).json({ ok: false, error: "DB_ERROR" });
   }
 });

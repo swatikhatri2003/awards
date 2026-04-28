@@ -32,6 +32,7 @@ body {
     radial-gradient(1200px 800px at 10% 20%, rgba(159, 231, 255, 0.18), transparent 55%),
     radial-gradient(1000px 700px at 90% 15%, rgba(214, 180, 106, 0.18), transparent 55%),
     linear-gradient(180deg, var(--bg0), var(--bg1));
+  background-attachment: fixed;
   font-family: Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -65,6 +66,7 @@ html {
   max-width: none;
   min-height: 100vh;
   padding: clamp(16px, 3vw, 40px) clamp(12px, 2vw, 24px);
+  align-items: stretch;
 }
 
 .card {
@@ -80,6 +82,7 @@ html {
 
 .cardWide {
   max-width: 1200px;
+  min-height: calc(100vh - clamp(32px, 6vw, 80px));
 }
 
 .brandRow {

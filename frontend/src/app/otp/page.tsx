@@ -34,7 +34,7 @@ export default function OtpPage() {
   const [otp, setOtp] = React.useState("");
   const [pending, setPending] = React.useState<ReturnType<typeof readPendingRegistration>>(null);
 
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000/api";
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
 
   React.useEffect(() => {
     const p = readPendingRegistration();
@@ -65,21 +65,7 @@ export default function OtpPage() {
         writeCurrentUser(data.person);
       }
 
-      const catRes = await fetch(`${apiBase}/categories`);
-      const catData = await catRes.json().catch(() => null);
-      const rawList = catData?.categories;
-      if (!catRes.ok || !Array.isArray(rawList) || rawList.length === 0) {
-        throw new Error("No voting categories are available right now. Please try again later.");
-      }
-      const sorted = [...rawList].sort(
-        (a: { category_id: number }, b: { category_id: number }) =>
-          Number(a.category_id) - Number(b.category_id),
-      );
-      const firstId = Number(sorted[0]?.category_id);
-      if (!Number.isFinite(firstId) || firstId <= 0) {
-        throw new Error("No voting categories are available right now. Please try again later.");
-      }
-      router.push(`/vote/${firstId}`);
+      router.push("/usersvote");
     } catch (err) {
       setError(err instanceof Error ? err.message : "OTP_VERIFY_FAILED");
     } finally {
@@ -113,15 +99,12 @@ export default function OtpPage() {
 
         {error ? <div className="error">Error: {error}</div> : null}
 
-        <div className="row">
-          <button className="btnSecondary" type="button" disabled={loading} onClick={() => router.push("/register")}>
-            Back
-          </button>
-          <button className="btn" disabled={loading || !pending}>
-            {loading ? "Verifying..." : "Verify OTP"}
-          </button>
-        </div>
+        <button className="btn btnLg" disabled={loading || !pending}>
+          {loading ? "Verifying..." : "Verify OTP"}
+        </button>
       </form>
+
+     
     </Shell>
   );
 }

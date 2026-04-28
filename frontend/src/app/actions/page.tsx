@@ -53,7 +53,8 @@ function nomineePhotoUrl(apiBase: string, photo?: string) {
   const p = (photo || "").trim();
   if (!p) return "";
   if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
-  const base = apiBase.replace(/\/+$/, "");
+  // `apiBase` includes `/api` now; uploads are served from the server root.
+  const base = apiBase.replace(/\/+$/, "").replace(/\/api$/, "");
 
   // Backend may return:
   // - "abc.jpg"
@@ -670,7 +671,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
 }
 
 export default function ActionsPage() {
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
 
   return <LedDashboard apiBase={apiBase} />;
 }

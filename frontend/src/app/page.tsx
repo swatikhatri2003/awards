@@ -1,5 +1,14 @@
-import { redirect } from "next/navigation";
+"use client";
+
+import React from "react";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
-  redirect("/register");
+  const router = useRouter();
+
+  React.useEffect(() => {
+    router.replace("/register");
+  }, [router]);
+
+  return null;
 }
