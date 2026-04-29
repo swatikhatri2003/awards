@@ -168,6 +168,20 @@ app.post("/api/auth/register", async (req, res) => {
   const attemptsLeft = 5;
 
   try {
+    // Allowlist gate: only mobile numbers present in `allowed_mobiles` may register.
+    // Store digits-only in that table (matches the schema's normalized `mobile`).
+    const [allowedRows] = await db.execute<RowDataPacket[]>(
+      `SELECT id FROM allowed_mobiles WHERE mobile = :mobile LIMIT 1`,
+      { mobile },
+    );
+    if (!allowedRows[0]) {
+      return res.status(403).json({
+        ok: false,
+        error: "MOBILE_NOT_ALLOWED",
+        message: "This mobile number is not authorized. Please contact admin.",
+      });
+    }
+
     const membershipNo = membership_number ? Number(membership_number) : null;
     if (membership_number && Number.isNaN(membershipNo)) {
       return res.status(400).json({ ok: false, error: "INVALID_MEMBERSHIP_NUMBER" });

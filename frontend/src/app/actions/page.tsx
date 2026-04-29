@@ -128,18 +128,56 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
       .finally(() => setCategoriesLoading(false));
   }, [apiBase, screen]);
 
+  const allNomineesLoadedRef = React.useRef(false);
+  const allNomineesInflightRef = React.useRef<Promise<Nominee[]> | null>(null);
+
+  const fetchAllNominees = React.useCallback(async (): Promise<Nominee[]> => {
+    if (allNomineesInflightRef.current) return allNomineesInflightRef.current;
+    const p = (async () => {
+      const r = await fetch(`${apiBase}/nominees`);
+      const data = await r.json().catch(() => null);
+      if (!r.ok) throw new Error((data && (data as any).error) || "NOMINEES_FAILED");
+      const list = Array.isArray((data as { nominees?: Nominee[] }).nominees)
+        ? ((data as any).nominees as Nominee[])
+        : [];
+      return list;
+    })();
+    allNomineesInflightRef.current = p;
+    try {
+      return await p;
+    } finally {
+      allNomineesInflightRef.current = null;
+    }
+  }, [apiBase]);
+
   const loadNominees = React.useCallback(
     async (categoryId: number) => {
       if (!categoryId) return;
       if (Array.isArray(nomineesByCategory[categoryId])) return;
+      if (allNomineesLoadedRef.current) {
+        setNomineesByCategory((p) => (Array.isArray(p[categoryId]) ? p : { ...p, [categoryId]: [] }));
+        return;
+      }
+
       setNomineesLoadingByCategory((p) => ({ ...p, [categoryId]: true }));
       setNomineesErrorByCategory((p) => ({ ...p, [categoryId]: null }));
       try {
-        const r = await fetch(`${apiBase}/categories/${categoryId}/nominees`);
-        const data = await r.json().catch(() => null);
-        if (!r.ok) throw new Error(data?.error || "NOMINEES_FAILED");
-        const list = Array.isArray((data as { nominees?: Nominee[] }).nominees) ? (data as any).nominees : [];
-        setNomineesByCategory((p) => ({ ...p, [categoryId]: list }));
+        const list = await fetchAllNominees();
+        const grouped: Record<number, Nominee[]> = {};
+        for (const n of list) {
+          const cid = Number(n?.category_id);
+          if (!Number.isFinite(cid)) continue;
+          (grouped[cid] ||= []).push(n);
+        }
+        allNomineesLoadedRef.current = true;
+        setNomineesByCategory((prev) => {
+          const next: Record<number, Nominee[]> = { ...prev };
+          for (const k of Object.keys(grouped)) {
+            next[Number(k)] = grouped[Number(k)];
+          }
+          if (!Array.isArray(next[categoryId])) next[categoryId] = [];
+          return next;
+        });
       } catch (e) {
         setNomineesErrorByCategory((p) => ({
           ...p,
@@ -149,7 +187,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
         setNomineesLoadingByCategory((p) => ({ ...p, [categoryId]: false }));
       }
     },
-    [apiBase, nomineesByCategory],
+    [fetchAllNominees, nomineesByCategory],
   );
 
   React.useEffect(() => {
@@ -279,11 +317,23 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
       if (!Array.isArray(nomineesByCategory[c.category_id])) {
         try {
           setNomineesLoadingByCategory((p) => ({ ...p, [c.category_id]: true }));
-          const r = await fetch(`${apiBase}/categories/${c.category_id}/nominees`);
-          const data = await r.json().catch(() => null);
-          if (!r.ok) throw new Error((data && data.error) || "NOMINEES_FAILED");
-          nominees = Array.isArray(data?.nominees) ? data.nominees : [];
-          setNomineesByCategory((p) => ({ ...p, [c.category_id]: nominees }));
+          const all = await fetchAllNominees();
+          const grouped: Record<number, Nominee[]> = {};
+          for (const n of all) {
+            const cid = Number(n?.category_id);
+            if (!Number.isFinite(cid)) continue;
+            (grouped[cid] ||= []).push(n);
+          }
+          allNomineesLoadedRef.current = true;
+          nominees = grouped[c.category_id] ?? [];
+          setNomineesByCategory((prev) => {
+            const next: Record<number, Nominee[]> = { ...prev };
+            for (const k of Object.keys(grouped)) {
+              next[Number(k)] = grouped[Number(k)];
+            }
+            if (!Array.isArray(next[c.category_id])) next[c.category_id] = [];
+            return next;
+          });
           setNomineesErrorByCategory((p) => ({ ...p, [c.category_id]: null }));
         } catch (e) {
           const msg = e instanceof Error ? e.message : "NOMINEES_FAILED";
@@ -307,7 +357,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
         })),
       });
     },
-    [apiBase, nomineesByCategory],
+    [fetchAllNominees, nomineesByCategory],
   );
 
   return (
@@ -560,60 +610,136 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
 
             {categoriesError ? <div className="error" style={{ marginTop: 12 }}>Error: {categoriesError}</div> : null}
 
-            <div className="nomineeGrid" style={{ marginTop: 14 }}>
-              {categories
-                .filter((c) => !!c.winner_nominee_id)
-                .map((c) => {
-                  const nominees = nomineesByCategory[c.category_id] || [];
-                  const nomineesLoading = nomineesLoadingByCategory[c.category_id] || false;
-                  const nomineesError = nomineesErrorByCategory[c.category_id] || null;
-                  const winnerId = c.winner_nominee_id ?? null;
-                  const winner = winnerId ? nominees.find((n) => n.nominee_id === winnerId) : undefined;
-                  const src = winner ? nomineePhotoUrl(apiBase, winner.photo) || FALLBACK_PHOTO : FALLBACK_PHOTO;
+            <div
+              style={{
+                marginTop: 14,
+                display: "grid",
+                gridTemplateColumns: "minmax(260px, 420px) 1fr",
+                gap: 14,
+                alignItems: "start",
+              }}
+            >
+              <div className="panel" style={{ minHeight: 240 }}>
+                <div className="panelHeader" style={{ marginBottom: 10 }}>
+                  <div className="panelTitle" style={{ fontSize: 14 }}>
+                    Categories
+                  </div>
+                  <div className="panelMeta">
+                    {categoriesLoading ? "Loading..." : categoriesError ? "Failed" : `${categories.length} categories`}
+                  </div>
+                </div>
 
-                  return (
-                    <div key={c.category_id} className="nomineeCard" style={{ padding: 12 }}>
-                      <div className="listTitle" style={{ whiteSpace: "normal" }}>
-                        <span className="badge">#{c.category_id}</span> {c.name}
-                      </div>
+                <div className="list" role="list" style={{ maxHeight: "unset", overflow: "visible" }}>
+                  {categories.map((c) => {
+                    const nominees = nomineesByCategory[c.category_id] || [];
+                    const nomineesLoading = nomineesLoadingByCategory[c.category_id] || false;
+                    const nomineesError = nomineesErrorByCategory[c.category_id] || null;
+                    const totalVotes = Array.isArray(nominees)
+                      ? nominees.reduce((sum, n) => sum + Number(n?.votes ?? 0), 0)
+                      : 0;
 
-                      {nomineesLoading ? <div className="hint" style={{ marginTop: 10 }}>Loading winner...</div> : null}
-                      {nomineesError ? <div className="error" style={{ marginTop: 10 }}>Error: {nomineesError}</div> : null}
-
-                      {!nomineesLoading && !nomineesError ? (
-                        winner ? (
-                          <>
-                            <div className="nomineePhotoWrap" style={{ marginTop: 10 }}>
-                              <img
-                                className="nomineePhoto"
-                                src={src}
-                                alt={winner.name}
-                                loading="lazy"
-                                onError={(e) => {
-                                  e.currentTarget.src = ERROR_PHOTO;
-                                }}
-                              />
-                            </div>
-                            <div className="nomineeName" style={{ marginTop: 8 }}>
-                              {winner.name}
-                            </div>
-                          </>
-                        ) : (
-                          <div className="hint" style={{ marginTop: 10 }}>
-                            Winner nominee not found in this category.
-                          </div>
-                        )
-                      ) : null}
-                    </div>
-                  );
-                })}
-            </div>
-
-            {!categoriesLoading && !categoriesError && categories.filter((c) => !!c.winner_nominee_id).length === 0 ? (
-              <div className="hint" style={{ marginTop: 14 }}>
-                No winners decided yet.
+                    return (
+                      <button
+                        key={c.category_id}
+                        type="button"
+                        className={selectedCategoryId === c.category_id ? "listItem listItemActive" : "listItem"}
+                        onClick={() => {
+                          setSelectedCategoryId(c.category_id);
+                          void loadNominees(c.category_id);
+                        }}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}
+                        title={c.name}
+                      >
+                        <div className="listTitle" style={{ whiteSpace: "normal" }}>
+                          <span className="badge">#{c.category_id}</span> {c.name}
+                        </div>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                          {nomineesError ? <span className="badge">Err</span> : null}
+                          {nomineesLoading ? (
+                            <span className="badge">...</span>
+                          ) : (
+                            <span className="badge" title="Total votes in this category">
+                              {Array.isArray(nomineesByCategory[c.category_id]) ? `${totalVotes} votes` : "Open"}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            ) : null}
+
+              <div className="panel" style={{ minHeight: 240 }}>
+                <div className="panelHeader" style={{ marginBottom: 10 }}>
+                  <div className="panelTitle" style={{ fontSize: 14 }}>
+                    {selectedCategory ? selectedCategory.name : "Select a category"}
+                  </div>
+                  <div className="panelMeta">
+                    {selectedCategoryId
+                      ? selectedNomineesLoading
+                        ? "Loading..."
+                        : selectedNomineesError
+                          ? "Failed"
+                          : `${selectedNominees.length} nominees`
+                      : ""}
+                  </div>
+                </div>
+
+                {!selectedCategoryId ? (
+                  <div className="hint">Click a category to see nominee votes.</div>
+                ) : selectedNomineesError ? (
+                  <div className="error">Error: {selectedNomineesError}</div>
+                ) : selectedNomineesLoading ? (
+                  <div className="hint">Loading nominees...</div>
+                ) : selectedNominees.length === 0 ? (
+                  <div className="hint">No nominees found for this category.</div>
+                ) : (
+                  <div className="nomineeGrid">
+                    {[...selectedNominees]
+                      .sort((a, b) => {
+                        const dv = Number(b?.votes ?? 0) - Number(a?.votes ?? 0);
+                        if (dv !== 0) return dv;
+                        return String(a?.name ?? "").localeCompare(String(b?.name ?? ""), undefined, {
+                          sensitivity: "base",
+                        });
+                      })
+                      .map((n, idx) => {
+                        const votes = Number(n?.votes ?? 0);
+                        const isTop = idx === 0;
+                        return (
+                          <div
+                            key={n.nominee_id}
+                            className="listItem"
+                            style={{
+                              cursor: "default",
+                              padding: "12px 14px",
+                              borderRadius: 12,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 12,
+                              outline: isTop ? "2px solid rgba(255, 228, 26, 0.85)" : "none",
+                            }}
+                          >
+                            <div className="listTitle" style={{ whiteSpace: "normal" }}>
+                              <span className="badge" style={{ marginRight: 8 }}>
+                                #{idx + 1}
+                              </span>
+                              {n.name}
+                            </div>
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                              {isTop ? <span className="badge">TOP</span> : null}
+                              <span className="badge" title="Total votes">
+                                {votes}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            </div>
           </section>
         ) : null}
         </div>

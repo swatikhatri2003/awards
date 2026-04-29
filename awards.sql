@@ -65,6 +65,21 @@ CREATE TABLE `users` (
   `verified_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `allowed_mobiles`
+-- Whitelist of mobile numbers permitted to register/vote.
+-- Store digits-only (no spaces, plus signs, or dashes).
+--
+
+CREATE TABLE `allowed_mobiles` (
+  `id` int(11) NOT NULL,
+  `mobile` varchar(15) NOT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 --
 -- Indexes for dumped tables
 --
@@ -91,6 +106,13 @@ ALTER TABLE `users`
   ADD UNIQUE KEY `uq_users_email` (`email`);
 
 --
+-- Indexes for table `allowed_mobiles`
+--
+ALTER TABLE `allowed_mobiles`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_allowed_mobiles_mobile` (`mobile`);
+
+--
 -- AUTO_INCREMENT for dumped tables
 --
 
@@ -110,6 +132,12 @@ ALTER TABLE `nominee`
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `allowed_mobiles`
+--
+ALTER TABLE `allowed_mobiles`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
