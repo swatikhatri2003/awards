@@ -46,7 +46,7 @@ export default function RegisterPage() {
     membership_number: "",
   });
 
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000/api";
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
 
   async function submitRegister(e: React.FormEvent) {
     e.preventDefault();
