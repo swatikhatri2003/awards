@@ -6,6 +6,7 @@ import styles from "./led-kiosk.module.css";
 import { setYlfCategory, setYlfGraph, setYlfPage, setYlfTimer } from "@/lib/firebase";
 
 type ScreenKey = "HOME" | "CATEGORY" | "WINNER" | "QR";
+type AdminScreenKey = ScreenKey | "ADMIN";
 
 type EventInfo = {
   name: string;
@@ -22,6 +23,7 @@ type Nominee = {
   nominee_id: number;
   photo: string;
   name: string;
+  description?: string | null;
   category_id: number;
   votes: number;
 };
@@ -86,7 +88,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
       document.body.style.overflow = prev;
     };
   }, []);
-  const [screen, setScreen] = React.useState<ScreenKey>("HOME");
+  const [screen, setScreen] = React.useState<AdminScreenKey>("HOME");
   const event: EventInfo = React.useMemo(
     () => ({
       name: "YLF Member Awards",
@@ -94,6 +96,8 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
     }),
     [],
   );
+
+  const ADMIN_EVENT_ID = 1;
 
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [categoriesLoading, setCategoriesLoading] = React.useState(false);
@@ -307,6 +311,191 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
      // console.log(`[UI] Screen button -> CATEGORY (no Firebase write yet — waits for a specific category click)`);
     }
   }, []);
+
+  const [adminCategories, setAdminCategories] = React.useState<Category[]>([]);
+  const [adminLoading, setAdminLoading] = React.useState(false);
+  const [adminError, setAdminError] = React.useState<string | null>(null);
+  const [adminSelectedCategoryId, setAdminSelectedCategoryId] = React.useState<number | null>(null);
+  const [adminNominees, setAdminNominees] = React.useState<Nominee[]>([]);
+  const [adminCategoryNameDraft, setAdminCategoryNameDraft] = React.useState("");
+  const [adminWinnerNomineeIdDraft, setAdminWinnerNomineeIdDraft] = React.useState("");
+  const [adminNewCategoryName, setAdminNewCategoryName] = React.useState("");
+  const [adminNomineeForm, setAdminNomineeForm] = React.useState<{
+    nominee_id?: number;
+    name: string;
+    photo: string;
+    description: string;
+  }>({ name: "", photo: "", description: "" });
+
+  const loadAdminData = React.useCallback(async () => {
+    setAdminLoading(true);
+    setAdminError(null);
+    try {
+      const [catsRes, nomsRes] = await Promise.all([
+        fetch(`${apiBase}/categories?eventId=${ADMIN_EVENT_ID}`),
+        fetch(`${apiBase}/nominees?eventId=${ADMIN_EVENT_ID}`),
+      ]);
+      const catsData = await catsRes.json().catch(() => null);
+      const nomsData = await nomsRes.json().catch(() => null);
+      if (!catsRes.ok) throw new Error(catsData?.error || "CATEGORIES_FAILED");
+      if (!nomsRes.ok) throw new Error(nomsData?.error || "NOMINEES_FAILED");
+
+      const nextCats = Array.isArray(catsData?.categories) ? (catsData.categories as Category[]) : [];
+      const nextNoms = Array.isArray(nomsData?.nominees) ? (nomsData.nominees as Nominee[]) : [];
+      setAdminCategories(nextCats);
+      setAdminNominees(nextNoms);
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "ADMIN_LOAD_FAILED");
+    } finally {
+      setAdminLoading(false);
+    }
+  }, [ADMIN_EVENT_ID, apiBase]);
+
+  React.useEffect(() => {
+    if (screen !== "ADMIN") return;
+    void loadAdminData();
+  }, [screen, loadAdminData]);
+
+  const adminSelectedCategory = React.useMemo(
+    () => (adminSelectedCategoryId ? adminCategories.find((c) => c.category_id === adminSelectedCategoryId) : undefined),
+    [adminSelectedCategoryId, adminCategories],
+  );
+
+  const adminNomineesForSelected = React.useMemo(() => {
+    if (!adminSelectedCategoryId) return [];
+    return adminNominees
+      .filter((n) => Number(n?.category_id) === adminSelectedCategoryId)
+      .slice()
+      .sort((a, b) => Number(a.nominee_id) - Number(b.nominee_id));
+  }, [adminNominees, adminSelectedCategoryId]);
+
+  React.useEffect(() => {
+    if (!adminSelectedCategory) return;
+    setAdminCategoryNameDraft(adminSelectedCategory.name || "");
+    setAdminWinnerNomineeIdDraft(adminSelectedCategory.winner_nominee_id ? String(adminSelectedCategory.winner_nominee_id) : "");
+  }, [adminSelectedCategory]);
+
+  async function adminCreateCategory() {
+    const name = adminNewCategoryName.trim();
+    if (!name) return;
+    setAdminLoading(true);
+    setAdminError(null);
+    try {
+      const res = await fetch(`${apiBase}/admin/categories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, eventId: ADMIN_EVENT_ID }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "CREATE_CATEGORY_FAILED");
+      setAdminNewCategoryName("");
+      await loadAdminData();
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "CREATE_CATEGORY_FAILED");
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function adminUpdateCategory() {
+    if (!adminSelectedCategoryId) return;
+    const name = adminCategoryNameDraft.trim();
+    const rawWinner = adminWinnerNomineeIdDraft.trim();
+    const winnerVal: number | null = rawWinner ? Number(rawWinner) : null;
+    if (rawWinner) {
+      const n = Number(rawWinner);
+      if (!Number.isFinite(n) || n <= 0) {
+        setAdminError("INVALID_WINNER_ID");
+        return;
+      }
+    }
+    if (rawWinner && winnerVal === null) {
+      setAdminError("INVALID_WINNER_ID");
+      return;
+    }
+    setAdminLoading(true);
+    setAdminError(null);
+    try {
+      const res = await fetch(
+        `${apiBase}/admin/categories/${adminSelectedCategoryId}?eventId=${ADMIN_EVENT_ID}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, winner_nominee_id: winnerVal }),
+        },
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "UPDATE_CATEGORY_FAILED");
+      await loadAdminData();
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function adminSaveNominee() {
+    if (!adminSelectedCategoryId) return;
+    const name = adminNomineeForm.name.trim();
+    if (!name) return;
+    setAdminLoading(true);
+    setAdminError(null);
+    try {
+      const isEdit = !!adminNomineeForm.nominee_id;
+      const url = isEdit
+        ? `${apiBase}/admin/nominees/${adminNomineeForm.nominee_id}?eventId=${ADMIN_EVENT_ID}`
+        : `${apiBase}/admin/nominees?eventId=${ADMIN_EVENT_ID}`;
+      const method = isEdit ? "PATCH" : "POST";
+      const body = isEdit
+        ? {
+            name,
+            photo: adminNomineeForm.photo.trim(),
+            description: adminNomineeForm.description.trim() || null,
+            category_id: adminSelectedCategoryId,
+          }
+        : {
+            name,
+            photo: adminNomineeForm.photo.trim(),
+            description: adminNomineeForm.description.trim() || undefined,
+            category_id: adminSelectedCategoryId,
+          };
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "SAVE_NOMINEE_FAILED");
+      setAdminNomineeForm({ name: "", photo: "", description: "" });
+      await loadAdminData();
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "SAVE_NOMINEE_FAILED");
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  const [adminPhotoUploading, setAdminPhotoUploading] = React.useState(false);
+
+  async function adminUploadNomineePhoto(file: File) {
+    setAdminPhotoUploading(true);
+    setAdminError(null);
+    try {
+      const fd = new FormData();
+      fd.append("photo", file);
+      const res = await fetch(`${apiBase}/uploads/nominee-photo`, { method: "POST", body: fd });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "PHOTO_UPLOAD_FAILED");
+      const filename = String(data?.filename || "");
+      if (!filename) throw new Error("PHOTO_UPLOAD_FAILED");
+      setAdminNomineeForm((p) => ({ ...p, photo: filename }));
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "PHOTO_UPLOAD_FAILED");
+    } finally {
+      setAdminPhotoUploading(false);
+    }
+  }
 
   const selectCategory = React.useCallback(
     async (c: Category) => {
@@ -742,6 +931,223 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
             </div>
           </section>
         ) : null}
+
+        {screen === "ADMIN" ? (
+          <section aria-label="Admin actions" style={{ width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+              <div className={styles.sectionTitle}>Admin</div>
+              <div className="panelMeta">
+                Event #{ADMIN_EVENT_ID} {adminLoading ? "• Working..." : ""}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 12 }} className="panel">
+              <div className="panelHeader" style={{ marginBottom: 10 }}>
+                <div className="panelTitle" style={{ fontSize: 14 }}>
+                  Register link
+                </div>
+                <div className="panelMeta">Passes eventId</div>
+              </div>
+              <a className="linkBtn" href={`/register?eventId=${ADMIN_EVENT_ID}`}>
+                Open registration for Event #{ADMIN_EVENT_ID}
+              </a>
+            </div>
+
+            {adminError ? (
+              <div className="error" style={{ marginTop: 12 }}>
+                Error: {adminError}
+              </div>
+            ) : null}
+
+            <div
+              style={{
+                marginTop: 14,
+                display: "grid",
+                gridTemplateColumns: "minmax(260px, 420px) 1fr",
+                gap: 14,
+                alignItems: "start",
+              }}
+            >
+              <div className="panel" style={{ minHeight: 240 }}>
+                <div className="panelHeader" style={{ marginBottom: 10 }}>
+                  <div className="panelTitle" style={{ fontSize: 14 }}>
+                    Categories
+                  </div>
+                  <div className="panelMeta">{adminCategories.length} total</div>
+                </div>
+
+                <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+                  <input
+                    className="input"
+                    value={adminNewCategoryName}
+                    placeholder="New category name"
+                    onChange={(e) => setAdminNewCategoryName(e.target.value)}
+                    disabled={adminLoading}
+                  />
+                  <button className="btn" type="button" onClick={adminCreateCategory} disabled={adminLoading}>
+                    Add
+                  </button>
+                </div>
+
+                <div className="list" role="list" style={{ maxHeight: "unset", overflow: "visible" }}>
+                  {adminCategories.map((c) => (
+                    <button
+                      key={c.category_id}
+                      type="button"
+                      className={
+                        adminSelectedCategoryId === c.category_id ? "listItem listItemActive" : "listItem"
+                      }
+                      onClick={() => setAdminSelectedCategoryId(c.category_id)}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}
+                      title={c.name}
+                    >
+                      <div className="listTitle" style={{ whiteSpace: "normal" }}>
+                        <span className="badge">#{c.category_id}</span> {c.name}
+                      </div>
+                      {c.winner_nominee_id ? <span className="badge">Winner</span> : <span className="badge">—</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="panel" style={{ minHeight: 240 }}>
+                <div className="panelHeader" style={{ marginBottom: 10 }}>
+                  <div className="panelTitle" style={{ fontSize: 14 }}>
+                    {adminSelectedCategory ? `Edit: ${adminSelectedCategory.name}` : "Select a category"}
+                  </div>
+                  <div className="panelMeta">
+                    {adminSelectedCategoryId ? `${adminNomineesForSelected.length} nominees` : ""}
+                  </div>
+                </div>
+
+                {!adminSelectedCategory ? (
+                  <div className="hint">Pick a category to edit and manage nominees.</div>
+                ) : (
+                  <>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 180px 120px", gap: 10 }}>
+                      <input
+                        className="input"
+                        value={adminCategoryNameDraft}
+                        onChange={(e) => setAdminCategoryNameDraft(e.target.value)}
+                        placeholder="Category name"
+                        disabled={adminLoading}
+                      />
+                      <input
+                        className="input"
+                        value={adminWinnerNomineeIdDraft}
+                        onChange={(e) => setAdminWinnerNomineeIdDraft(e.target.value.replace(/[^\d]/g, ""))}
+                        placeholder="Winner ID"
+                        inputMode="numeric"
+                        disabled={adminLoading}
+                      />
+                      <button className="btn" type="button" onClick={adminUpdateCategory} disabled={adminLoading}>
+                        Save
+                      </button>
+                    </div>
+
+                    <div style={{ marginTop: 14 }}>
+                      <div className="panelHeader" style={{ marginBottom: 10 }}>
+                        <div className="panelTitle" style={{ fontSize: 14 }}>
+                          Nominees
+                        </div>
+                        <div className="panelMeta">Add / update</div>
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        <input
+                          className="input"
+                          value={adminNomineeForm.name}
+                          onChange={(e) => setAdminNomineeForm((p) => ({ ...p, name: e.target.value }))}
+                          placeholder="Nominee name"
+                          disabled={adminLoading}
+                        />
+                        <input
+                          className="input"
+                          value={adminNomineeForm.photo}
+                          onChange={(e) => setAdminNomineeForm((p) => ({ ...p, photo: e.target.value }))}
+                          placeholder="Photo filename / URL"
+                          disabled={adminLoading || adminPhotoUploading}
+                        />
+                      </div>
+                      <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center" }}>
+                        <input
+                          className="input"
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const f = e.currentTarget.files?.[0];
+                            if (f) void adminUploadNomineePhoto(f);
+                            e.currentTarget.value = "";
+                          }}
+                          disabled={adminLoading || adminPhotoUploading}
+                        />
+                        <div className="hint" style={{ opacity: adminPhotoUploading ? 1 : 0.8 }}>
+                          {adminPhotoUploading ? "Uploading..." : "Upload nominee photo (saves filename to DB)."}
+                        </div>
+                      </div>
+                      <textarea
+                        className="input"
+                        value={adminNomineeForm.description}
+                        onChange={(e) => setAdminNomineeForm((p) => ({ ...p, description: e.target.value }))}
+                        placeholder="Description (optional)"
+                        style={{ marginTop: 10, minHeight: 96, resize: "vertical" }}
+                        disabled={adminLoading}
+                      />
+                      <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center" }}>
+                        <button className="btn" type="button" onClick={adminSaveNominee} disabled={adminLoading}>
+                          {adminNomineeForm.nominee_id ? "Update nominee" : "Add nominee"}
+                        </button>
+                        {adminNomineeForm.nominee_id ? (
+                          <button
+                            className="btn btnGhost"
+                            type="button"
+                            onClick={() => setAdminNomineeForm({ name: "", photo: "", description: "" })}
+                            disabled={adminLoading}
+                          >
+                            Cancel edit
+                          </button>
+                        ) : null}
+                      </div>
+
+                      <div className="nomineeGrid" style={{ marginTop: 12 }}>
+                        {adminNomineesForSelected.map((n) => (
+                          <button
+                            key={n.nominee_id}
+                            type="button"
+                            className="listItem"
+                            onClick={() =>
+                              setAdminNomineeForm({
+                                nominee_id: n.nominee_id,
+                                name: n.name || "",
+                                photo: n.photo || "",
+                                description: n.description || "",
+                              })
+                            }
+                            style={{
+                              textAlign: "left",
+                              padding: "12px 14px",
+                              borderRadius: 12,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 12,
+                            }}
+                            title="Click to edit"
+                          >
+                            <div className="listTitle" style={{ whiteSpace: "normal" }}>
+                              <span className="badge">#{n.nominee_id}</span> {n.name}
+                            </div>
+                            <span className="badge">{Number(n.votes ?? 0)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </section>
+        ) : null}
         </div>
       </div>
 
@@ -791,13 +1197,24 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
         >
           QR
         </button>
+        <button
+          type="button"
+          className={`${styles.squareBtn} ${screen === "ADMIN" ? styles.squareBtnActive : styles.squareBtnMuted}`}
+          onClick={() => setScreen("ADMIN")}
+          aria-label="Admin"
+          title="Admin"
+        >
+          A
+        </button>
       </nav>
     </div>
   );
 }
 
 export default function ActionsPage() {
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
+  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
+  const apiBaseRoot = rawApiBase.replace(/\/+$/, "");
+  const apiBase = /\/api$/i.test(apiBaseRoot) ? apiBaseRoot : `${apiBaseRoot}/api`;
 
   return <LedDashboard apiBase={apiBase} />;
 }

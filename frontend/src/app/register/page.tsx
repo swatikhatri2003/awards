@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Field, Shell } from "../_components/Shell";
 import { writePendingRegistration } from "../_lib/authSession";
 
@@ -22,6 +22,7 @@ function friendlyError(code: string) {
 
 export default function RegisterPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
@@ -46,7 +47,14 @@ export default function RegisterPage() {
     membership_number: "",
   });
 
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
+  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
+  const apiBaseRoot = rawApiBase.replace(/\/+$/, "");
+  const apiBase = /\/api$/i.test(apiBaseRoot) ? apiBaseRoot : `${apiBaseRoot}/api`;
+  const eventId = React.useMemo(() => {
+    const raw = searchParams?.get("eventId") || "";
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
+  }, [searchParams]);
 
   async function submitRegister(e: React.FormEvent) {
     e.preventDefault();
@@ -60,6 +68,7 @@ export default function RegisterPage() {
       };
       const membership = form.membership_number.trim();
       if (membership) payload.membership_number = membership;
+      payload.eventId = String(eventId);
 
       const res = await fetch(`${apiBase}/auth/register`, {
         method: "POST",
@@ -81,6 +90,7 @@ export default function RegisterPage() {
         email: payload.email,
         mobile: payload.mobile,
         membership_number: membership || undefined,
+        eventId,
       });
       router.push("/otp");
     } catch (err) {

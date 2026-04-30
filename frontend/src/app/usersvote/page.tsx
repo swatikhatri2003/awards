@@ -94,7 +94,9 @@ function friendlyError(code: string) {
 
 export default function UsersVotePage() {
   const router = useRouter();
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
+  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
+  const apiBaseRoot = rawApiBase.replace(/\/+$/, "");
+  const apiBase = /\/api$/i.test(apiBaseRoot) ? apiBaseRoot : `${apiBaseRoot}/api`;
 
   const [user, setUser] = React.useState<ReturnType<typeof readCurrentUser>>(null);
   const [uid, setUid] = React.useState<number | null>(null);

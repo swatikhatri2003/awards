@@ -34,7 +34,9 @@ export default function OtpPage() {
   const [otp, setOtp] = React.useState("");
   const [pending, setPending] = React.useState<ReturnType<typeof readPendingRegistration>>(null);
 
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
+  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
+  const apiBaseRoot = rawApiBase.replace(/\/+$/, "");
+  const apiBase = /\/api$/i.test(apiBaseRoot) ? apiBaseRoot : `${apiBaseRoot}/api`;
 
   React.useEffect(() => {
     const p = readPendingRegistration();

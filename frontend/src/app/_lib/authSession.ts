@@ -3,6 +3,7 @@ export type PendingRegistration = {
   email: string;
   mobile: string;
   membership_number?: string;
+  eventId?: number;
 };
 
 const KEY = "ylf_awards_pending_registration_v1";
