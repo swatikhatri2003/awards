@@ -197,7 +197,7 @@ function CategoryVoteStage({
 
   return (
     <Shell
-      title={` ${category.name}`}
+      title={category.name.trim() || "Vote"}
       subtitle={
         alreadyVoted
           ? "You have already voted in this category."
@@ -295,13 +295,7 @@ function CategoryVoteStage({
         <section aria-label="Nominee voting">
           {nominees.length === 0 ? <div className="hint">No nominees in this category yet.</div> : null}
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-              gap: 14,
-            }}
-          >
+          <div className="nomineeVoteGrid">
             {nominees.map((n) => {
               const src = nomineePhotoUrl(apiBase, n.photo) || FALLBACK_PHOTO;
               const selected = selectedNomineeId === Number(n.id);

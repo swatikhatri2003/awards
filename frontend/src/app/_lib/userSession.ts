@@ -4,6 +4,8 @@ export type CurrentUser = {
   email: string;
   mobile: string;
   membershipNumber?: string;
+  /** Event the voter registered for (from /register?eventId=). */
+  eventId?: number;
 };
 
 const KEY = "ylf_awards_current_user_v1";

@@ -11,6 +11,10 @@
   --accent2: #9fe7ff;
   --danger: #ff6b6b;
   --shadow: 0 20px 80px rgba(0, 0, 0, 0.45);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 html {
@@ -25,6 +29,7 @@ body {
 
 body {
   min-height: 100%;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   color: var(--text);
@@ -33,9 +38,12 @@ body {
     radial-gradient(1000px 700px at 90% 15%, rgba(214, 180, 106, 0.18), transparent 55%),
     linear-gradient(180deg, var(--bg0), var(--bg1));
   background-attachment: fixed;
-  font-family: Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
 }
 
 * {
@@ -57,7 +65,7 @@ html {
   width: 100%;
   max-width: 980px;
   margin: 0 auto;
-  padding: clamp(18px, 4vw, 56px) 16px;
+  padding: clamp(16px, 4vw, 48px) clamp(14px, 4vw, 20px);
   display: flex;
   justify-content: center;
 }
@@ -92,6 +100,91 @@ html {
   border: 0;
   box-shadow: none;
   padding: clamp(8px, 2vw, 16px) 0;
+}
+
+/* ----- Shell header (title + optional actions) ----- */
+.shellHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-bottom: 4px;
+}
+
+.shellHeader--actionsOnly {
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.shellHeaderBody {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.shellTitle {
+  margin-top: 0;
+}
+
+.shellSubtitle {
+  margin-bottom: 12px;
+}
+
+.shellHeaderActions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+@media (max-width: 520px) {
+  .shellHeader:not(.shellHeader--actionsOnly) .shellHeaderActions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .shellHeader:not(.shellHeader--actionsOnly) .shellHeaderActions .linkBtn {
+    width: 100%;
+    min-height: 44px;
+  }
+}
+
+/* ----- Logo strip (responsive, wraps on narrow screens) ----- */
+.logoStrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(8px, 2.5vw, 18px);
+  margin: 0 0 18px;
+  padding: 0 2px;
+}
+
+.logoStripImg {
+  height: auto;
+  width: auto;
+  max-height: 52px;
+  max-width: min(34vw, 140px);
+  min-width: 0;
+  object-fit: contain;
+  mix-blend-mode: screen;
+  background-color: transparent;
+  flex: 0 1 auto;
+}
+
+.logoStripImg--mid {
+  max-width: min(38vw, 155px);
+  max-height: 56px;
+}
+
+@media (max-width: 400px) {
+  .logoStripImg,
+  .logoStripImg--mid {
+    max-width: min(42vw, 150px);
+    max-height: 48px;
+  }
 }
 
 .brandRow {
@@ -172,11 +265,42 @@ html {
 .input {
   height: 44px;
   border-radius: 12px;
-  padding: 0 12px;
+  padding: 0 14px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
   outline: none;
+  /* 16px+ avoids iOS Safari zooming inputs on focus */
+  font-size: 16px;
+  line-height: 1.35;
+  width: 100%;
+  max-width: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+select.input {
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, rgba(255, 255, 255, 0.65) 50%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.65) 50%, transparent 50%);
+  background-position: calc(100% - 18px) calc(50% - 3px), calc(100% - 13px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 36px;
+}
+
+textarea.input {
+  height: auto;
+  min-height: 110px;
+  padding: 12px 14px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+input[type="file"].input {
+  height: auto;
+  min-height: 44px;
+  padding: 10px 12px;
 }
 
 .input:focus {
@@ -217,12 +341,15 @@ html {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  height: 34px;
-  padding: 0 12px;
+  min-height: 44px;
+  height: auto;
+  padding: 8px 14px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   transition: 0.16s ease;
   white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .linkBtn:hover {
@@ -273,6 +400,18 @@ html {
 
 .btnSecondary:hover {
   background: rgba(255, 255, 255, 0.10);
+}
+
+.btn.btnGhost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.btn.btnGhost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  filter: none;
+  transform: none;
 }
 
 .btnLg {
@@ -343,14 +482,19 @@ html {
 }
 
 .tab {
-  flex: 1;
-  height: 38px;
+  flex: 1 1 auto;
+  min-width: min(120px, 100%);
+  min-height: 44px;
+  height: auto;
+  padding: 8px 10px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
   cursor: pointer;
   font-weight: 700;
+  font-size: 14px;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .tabActive {
@@ -535,6 +679,20 @@ html {
   color: #ffd0d0;
 }
 
+/* Live vote page: nominee cards */
+.nomineeVoteGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 420px) {
+  .nomineeVoteGrid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
 .nomineeGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -582,6 +740,7 @@ html {
 @media (max-width: 520px) {
   .card {
     padding: 18px;
+    border-radius: 18px;
   }
 
   .grid2 {
@@ -609,5 +768,14 @@ html {
 
   .timerRow {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .headline {
+    font-size: clamp(20px, 6vw, 28px);
+  }
+
+  .subhead {
+    font-size: 15px;
+    margin-bottom: 14px;
   }
 }

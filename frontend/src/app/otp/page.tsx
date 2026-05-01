@@ -62,9 +62,13 @@ export default function OtpPage() {
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(friendlyError(data?.error || "OTP_VERIFY_FAILED"));
 
+      const regEventId = pending.eventId;
       clearPendingRegistration();
       if (data?.person?.email && data?.person?.mobile) {
-        writeCurrentUser(data.person);
+        writeCurrentUser({
+          ...data.person,
+          ...(typeof regEventId === "number" && regEventId > 0 ? { eventId: regEventId } : {}),
+        });
       }
 
       router.push("/usersvote");

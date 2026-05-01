@@ -2,55 +2,31 @@
 
 import React from "react";
 
-// Must match `basePath` in next.config.ts. Override via NEXT_PUBLIC_BASE_PATH if needed.
-const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "/awards_f";
+// Must match `basePath` in next.config.ts. In dev, basePath is unset — use "" so /public maps to /logos/...
+// Override anytime via NEXT_PUBLIC_BASE_PATH.
+const BASE_PATH =
+  process.env.NEXT_PUBLIC_BASE_PATH?.replace(/\/+$/, "") ??
+  (process.env.NODE_ENV === "production" ? "/awards_f" : "");
 
 export function LogoHeader() {
   // Source PNGs have a baked-in black background. `mix-blend-mode: screen`
   // makes black pixels effectively transparent against the dark page bg.
-  const logoStyleBase: React.CSSProperties = {
-    height: "auto",
-    objectFit: "contain",
-    mixBlendMode: "screen",
-    backgroundColor: "transparent",
-  };
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 8,
-        margin: "0 0 16px",
-        padding: "0 4px",
-      }}
-    >
+    <div className="logoStrip" role="presentation">
       <img
+        className="logoStripImg"
         src={`${BASE_PATH}/logos/icc100.png`}
         alt="Indian Chamber of Commerce - Centenary"
-        style={{
-          ...logoStyleBase,
-          width: "30%",
-          maxWidth: 130,
-        }}
       />
       <img
+        className="logoStripImg logoStripImg--mid"
         src={`${BASE_PATH}/logos/ylf.png`}
         alt="Young Leaders Forum"
-        style={{
-          ...logoStyleBase,
-          width: "34%",
-          maxWidth: 150,
-        }}
       />
       <img
+        className="logoStripImg"
         src={`${BASE_PATH}/logos/elevate.png`}
         alt="Elevate"
-        style={{
-          ...logoStyleBase,
-          width: "30%",
-          maxWidth: 130,
-        }}
       />
     </div>
   );
@@ -71,13 +47,37 @@ export function Shell(props: {
     : props.wide
       ? "card cardWide"
       : "card";
+  const hasHeaderText = Boolean(props.title || props.subtitle);
+  const hasHeader = hasHeaderText || Boolean(props.right);
+
   return (
     <main className={containerClass}>
       <section className={cardClass}>
         {props.showLogos ? <LogoHeader /> : null}
 
-        {props.title ? <h1 className="headline">{props.title}</h1> : null}
-        {props.subtitle ? <p className="subhead">{props.subtitle}</p> : null}
+        {hasHeader ? (
+          <header
+            className={
+              hasHeaderText
+                ? "shellHeader"
+                : "shellHeader shellHeader--actionsOnly"
+            }
+          >
+            {hasHeaderText ? (
+              <div className="shellHeaderBody">
+                {props.title ? (
+                  <h1 className="headline shellTitle">{props.title}</h1>
+                ) : null}
+                {props.subtitle ? (
+                  <p className="subhead shellSubtitle">{props.subtitle}</p>
+                ) : null}
+              </div>
+            ) : null}
+            {props.right ? (
+              <div className="shellHeaderActions">{props.right}</div>
+            ) : null}
+          </header>
+        ) : null}
 
         {props.children}
       </section>

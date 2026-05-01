@@ -114,7 +114,7 @@ export default function RegisterPage() {
           onClick={() => setToast(null)}
           style={{
             position: "fixed",
-            top: 16,
+            top: "max(16px, env(safe-area-inset-top, 0px))",
             left: "50%",
             transform: "translateX(-50%)",
             zIndex: 1000,

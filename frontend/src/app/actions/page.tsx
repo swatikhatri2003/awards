@@ -1,9 +1,11 @@
 "use client";
 
-import React from "react";
-import { useRouter } from "next/navigation";
+import React, { Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import styles from "./led-kiosk.module.css";
 import { setYlfCategory, setYlfGraph, setYlfPage, setYlfTimer } from "@/lib/firebase";
+import { adminAuthHeader, readAdminToken } from "../_lib/adminAuthSession";
+import { withBasePath } from "../_lib/basePath";
 
 type ScreenKey = "HOME" | "CATEGORY" | "WINNER" | "QR";
 type AdminScreenKey = ScreenKey | "ADMIN";
@@ -17,6 +19,7 @@ type Category = {
   category_id: number;
   name: string;
   winner_nominee_id: number | null;
+  event_id?: number | null;
 };
 
 type Nominee = {
@@ -78,9 +81,17 @@ function HomeEvent({ event }: { event: EventInfo }) {
   );
 }
 
-function LedDashboard({ apiBase }: { apiBase: string }) {
-  const router = useRouter();
-
+function LedDashboard({
+  apiBase,
+  apiOrigin,
+  eventId,
+  token,
+}: {
+  apiBase: string;
+  apiOrigin: string;
+  eventId: number;
+  token: string;
+}) {
   React.useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -89,15 +100,35 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
     };
   }, []);
   const [screen, setScreen] = React.useState<AdminScreenKey>("HOME");
-  const event: EventInfo = React.useMemo(
-    () => ({
-      name: "YLF Member Awards",
-      photoSrc: "/ylf-member-awards-banner.png",
-    }),
-    [],
-  );
 
-  const ADMIN_EVENT_ID = 1;
+  const [homeEvent, setHomeEvent] = React.useState<EventInfo>({
+    name: "Event",
+    photoSrc: "/ylf-member-awards-banner.png",
+  });
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void fetch(`${apiBase}/events/${eventId}`)
+      .then((r) => r.json())
+      .then((d: { ok?: boolean; event?: { title?: string; image?: string | null } }) => {
+        if (cancelled || !d?.event) return;
+        const ev = d.event;
+        const rawImg = (ev.image || "").trim();
+        const img = rawImg
+          ? /^https?:\/\//i.test(rawImg)
+            ? rawImg
+            : `${apiOrigin}${rawImg.startsWith("/") ? rawImg : `/${rawImg}`}`
+          : "/ylf-member-awards-banner.png";
+        setHomeEvent({
+          name: (ev.title && String(ev.title).trim()) || "Event",
+          photoSrc: img,
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, apiOrigin, eventId]);
 
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [categoriesLoading, setCategoriesLoading] = React.useState(false);
@@ -115,30 +146,53 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
 
   React.useEffect(() => {
     if (screen !== "CATEGORY" && screen !== "WINNER") return;
+    const ac = new AbortController();
     setCategoriesLoading(true);
     setCategoriesError(null);
-    fetch(`${apiBase}/categories`)
+    fetch(`${apiBase}/categories?eventId=${eventId}`, { signal: ac.signal })
       .then(async (r) => {
         const data = await r.json().catch(() => null);
         if (!r.ok) throw new Error(data?.error || "CATEGORIES_FAILED");
         return data as { ok: boolean; categories: Category[] };
       })
       .then((data) => {
-        const next = Array.isArray(data.categories) ? data.categories : [];
+        const raw = Array.isArray(data.categories) ? data.categories : [];
+        const hasEventCol = raw.some(
+          (c) => c?.event_id != null && Number.isFinite(Number(c.event_id)),
+        );
+        const next = hasEventCol ? raw.filter((c) => Number(c?.event_id) === eventId) : raw;
         setCategories(next);
         setSelectedCategoryId((cur) => cur);
       })
-      .catch((e) => setCategoriesError(e instanceof Error ? e.message : "CATEGORIES_FAILED"))
+      .catch((e) => {
+        if ((e as { name?: string })?.name === "AbortError") return;
+        setCategoriesError(e instanceof Error ? e.message : "CATEGORIES_FAILED");
+      })
       .finally(() => setCategoriesLoading(false));
-  }, [apiBase, screen]);
+    return () => ac.abort();
+  }, [apiBase, screen, eventId]);
 
   const allNomineesLoadedRef = React.useRef(false);
   const allNomineesInflightRef = React.useRef<Promise<Nominee[]> | null>(null);
 
+  React.useEffect(() => {
+    allNomineesLoadedRef.current = false;
+    allNomineesInflightRef.current = null;
+    setCategories([]);
+    setCategoriesError(null);
+    setNomineesByCategory({});
+    setNomineesLoadingByCategory({});
+    setNomineesErrorByCategory({});
+    setSelectedCategoryId(null);
+    setAdminSelectedCategoryId(null);
+    setAdminCategories([]);
+    setAdminNominees([]);
+  }, [eventId]);
+
   const fetchAllNominees = React.useCallback(async (): Promise<Nominee[]> => {
     if (allNomineesInflightRef.current) return allNomineesInflightRef.current;
     const p = (async () => {
-      const r = await fetch(`${apiBase}/nominees`);
+      const r = await fetch(`${apiBase}/nominees?eventId=${eventId}`);
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error((data && (data as any).error) || "NOMINEES_FAILED");
       const list = Array.isArray((data as { nominees?: Nominee[] }).nominees)
@@ -152,7 +206,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
     } finally {
       allNomineesInflightRef.current = null;
     }
-  }, [apiBase]);
+  }, [apiBase, eventId]);
 
   const loadNominees = React.useCallback(
     async (categoryId: number) => {
@@ -332,15 +386,19 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
     setAdminError(null);
     try {
       const [catsRes, nomsRes] = await Promise.all([
-        fetch(`${apiBase}/categories?eventId=${ADMIN_EVENT_ID}`),
-        fetch(`${apiBase}/nominees?eventId=${ADMIN_EVENT_ID}`),
+        fetch(`${apiBase}/categories?eventId=${eventId}`),
+        fetch(`${apiBase}/nominees?eventId=${eventId}`),
       ]);
       const catsData = await catsRes.json().catch(() => null);
       const nomsData = await nomsRes.json().catch(() => null);
       if (!catsRes.ok) throw new Error(catsData?.error || "CATEGORIES_FAILED");
       if (!nomsRes.ok) throw new Error(nomsData?.error || "NOMINEES_FAILED");
 
-      const nextCats = Array.isArray(catsData?.categories) ? (catsData.categories as Category[]) : [];
+      const rawCats = Array.isArray(catsData?.categories) ? (catsData.categories as Category[]) : [];
+      const hasEventCol = rawCats.some(
+        (c) => c?.event_id != null && Number.isFinite(Number(c.event_id)),
+      );
+      const nextCats = hasEventCol ? rawCats.filter((c) => Number(c?.event_id) === eventId) : rawCats;
       const nextNoms = Array.isArray(nomsData?.nominees) ? (nomsData.nominees as Nominee[]) : [];
       setAdminCategories(nextCats);
       setAdminNominees(nextNoms);
@@ -349,7 +407,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
     } finally {
       setAdminLoading(false);
     }
-  }, [ADMIN_EVENT_ID, apiBase]);
+  }, [eventId, apiBase]);
 
   React.useEffect(() => {
     if (screen !== "ADMIN") return;
@@ -383,8 +441,8 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
     try {
       const res = await fetch(`${apiBase}/admin/categories`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, eventId: ADMIN_EVENT_ID }),
+        headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
+        body: JSON.stringify({ name, eventId }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "CREATE_CATEGORY_FAILED");
@@ -417,10 +475,10 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
     setAdminError(null);
     try {
       const res = await fetch(
-        `${apiBase}/admin/categories/${adminSelectedCategoryId}?eventId=${ADMIN_EVENT_ID}`,
+        `${apiBase}/admin/categories/${adminSelectedCategoryId}?eventId=${eventId}`,
         {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
           body: JSON.stringify({ name, winner_nominee_id: winnerVal }),
         },
       );
@@ -443,8 +501,8 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
     try {
       const isEdit = !!adminNomineeForm.nominee_id;
       const url = isEdit
-        ? `${apiBase}/admin/nominees/${adminNomineeForm.nominee_id}?eventId=${ADMIN_EVENT_ID}`
-        : `${apiBase}/admin/nominees?eventId=${ADMIN_EVENT_ID}`;
+        ? `${apiBase}/admin/nominees/${adminNomineeForm.nominee_id}?eventId=${eventId}`
+        : `${apiBase}/admin/nominees?eventId=${eventId}`;
       const method = isEdit ? "PATCH" : "POST";
       const body = isEdit
         ? {
@@ -462,7 +520,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
 
       const res = await fetch(url, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
         body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => null);
@@ -560,7 +618,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
 
       <div className={styles.stage}>
         <div className={styles.stageScroll}>
-        {screen === "HOME" ? <HomeEvent event={event} /> : null}
+        {screen === "HOME" ? <HomeEvent event={homeEvent} /> : null}
 
         {screen === "CATEGORY" ? (
           <section aria-label="Categories" style={{ width: "100%" }}>
@@ -937,7 +995,7 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
               <div className={styles.sectionTitle}>Admin</div>
               <div className="panelMeta">
-                Event #{ADMIN_EVENT_ID} {adminLoading ? "• Working..." : ""}
+                Event #{eventId} {adminLoading ? "• Working..." : ""}
               </div>
             </div>
 
@@ -948,8 +1006,8 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
                 </div>
                 <div className="panelMeta">Passes eventId</div>
               </div>
-              <a className="linkBtn" href={`/register?eventId=${ADMIN_EVENT_ID}`}>
-                Open registration for Event #{ADMIN_EVENT_ID}
+              <a className="linkBtn" href={withBasePath(`/register?eventId=${eventId}`)}>
+                Open registration for Event #{eventId}
               </a>
             </div>
 
@@ -1053,23 +1111,14 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
                         <div className="panelMeta">Add / update</div>
                       </div>
 
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                        <input
-                          className="input"
-                          value={adminNomineeForm.name}
-                          onChange={(e) => setAdminNomineeForm((p) => ({ ...p, name: e.target.value }))}
-                          placeholder="Nominee name"
-                          disabled={adminLoading}
-                        />
-                        <input
-                          className="input"
-                          value={adminNomineeForm.photo}
-                          onChange={(e) => setAdminNomineeForm((p) => ({ ...p, photo: e.target.value }))}
-                          placeholder="Photo filename / URL"
-                          disabled={adminLoading || adminPhotoUploading}
-                        />
-                      </div>
-                      <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center" }}>
+                      <input
+                        className="input"
+                        value={adminNomineeForm.name}
+                        onChange={(e) => setAdminNomineeForm((p) => ({ ...p, name: e.target.value }))}
+                        placeholder="Nominee name"
+                        disabled={adminLoading}
+                      />
+                      <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
                         <input
                           className="input"
                           type="file"
@@ -1081,9 +1130,11 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
                           }}
                           disabled={adminLoading || adminPhotoUploading}
                         />
-                        <div className="hint" style={{ opacity: adminPhotoUploading ? 1 : 0.8 }}>
-                          {adminPhotoUploading ? "Uploading..." : "Upload nominee photo (saves filename to DB)."}
-                        </div>
+                        {adminPhotoUploading ? (
+                          <span className="hint" style={{ margin: 0 }}>
+                            Uploading...
+                          </span>
+                        ) : null}
                       </div>
                       <textarea
                         className="input"
@@ -1211,11 +1262,86 @@ function LedDashboard({ apiBase }: { apiBase: string }) {
   );
 }
 
-export default function ActionsPage() {
-  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
-  const apiBaseRoot = rawApiBase.replace(/\/+$/, "");
-  const apiBase = /\/api$/i.test(apiBaseRoot) ? apiBaseRoot : `${apiBaseRoot}/api`;
+function normalizeApiBase(raw: string) {
+  const root = raw.replace(/\/+$/, "");
+  return /\/api$/i.test(root) ? root : `${root}/api`;
+}
 
-  return <LedDashboard apiBase={apiBase} />;
+function ActionsGate() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
+  const apiBase = normalizeApiBase(rawApiBase);
+  const apiOrigin = apiBase.replace(/\/api$/i, "");
+
+  const eventIdRaw = searchParams.get("eventId");
+  const [gateState, setGateState] = React.useState<"checking" | "ok" | "fail">("checking");
+  const [sessionToken, setSessionToken] = React.useState<string | null>(null);
+  const [resolvedEventId, setResolvedEventId] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    const token = readAdminToken();
+    if (!token) {
+      const q = new URLSearchParams();
+      q.set("next", "/actions");
+      if (eventIdRaw) q.set("eventId", eventIdRaw);
+      router.replace(withBasePath(`/admin?${q.toString()}`));
+      setGateState("fail");
+      return;
+    }
+    if (!eventIdRaw) {
+      router.replace(withBasePath("/admin"));
+      setGateState("fail");
+      return;
+    }
+    const eid = Number(eventIdRaw);
+    if (!Number.isFinite(eid) || eid <= 0) {
+      router.replace(withBasePath("/admin"));
+      setGateState("fail");
+      return;
+    }
+
+    void (async () => {
+      const r = await fetch(`${apiBase}/admin/events`, { headers: { ...adminAuthHeader(token) } });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) {
+        router.replace(withBasePath("/admin"));
+        setGateState("fail");
+        return;
+      }
+      const list = Array.isArray(d?.events) ? d.events : [];
+      const ok = list.some((ev: { event_id?: number }) => Number(ev?.event_id) === eid);
+      if (!ok) {
+        router.replace(withBasePath("/admin"));
+        setGateState("fail");
+        return;
+      }
+      setSessionToken(token);
+      setResolvedEventId(eid);
+      setGateState("ok");
+    })();
+  }, [router, apiBase, eventIdRaw]);
+
+  if (gateState !== "ok" || !sessionToken || resolvedEventId === null) {
+    return (
+      <main className="container">
+        <p className="hint" style={{ padding: 24 }}>
+          {gateState === "checking" ? "Loading…" : "Redirecting…"}
+        </p>
+      </main>
+    );
+  }
+
+  return (
+    <LedDashboard apiBase={apiBase} apiOrigin={apiOrigin} eventId={resolvedEventId} token={sessionToken} />
+  );
+}
+
+export default function ActionsPage() {
+  return (
+    <Suspense fallback={<main className="container"><p className="hint">Loading…</p></main>}>
+      <ActionsGate />
+    </Suspense>
+  );
 }
 

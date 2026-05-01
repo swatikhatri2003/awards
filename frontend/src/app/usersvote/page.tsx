@@ -20,6 +20,7 @@ const ERROR_PHOTO =
 type Category = {
   category_id: number;
   name: string;
+  event_id?: number | null;
 };
 
 type Nominee = {
@@ -130,9 +131,11 @@ export default function UsersVotePage() {
 
     void (async () => {
       try {
+        const u = readCurrentUser();
+        const eventId = typeof u?.eventId === "number" && u.eventId > 0 ? u.eventId : 1;
         const [catRes, nomRes] = await Promise.all([
-          fetch(`${apiBase}/categories`),
-          fetch(`${apiBase}/nominees`),
+          fetch(`${apiBase}/categories?eventId=${eventId}`),
+          fetch(`${apiBase}/nominees?eventId=${eventId}`),
         ]);
         const catData = await catRes.json().catch(() => null);
         const nomData = await nomRes.json().catch(() => null);
@@ -141,7 +144,16 @@ export default function UsersVotePage() {
         if (!catRes.ok || !Array.isArray(rawCats) || rawCats.length === 0) {
           throw new Error("No voting categories are available right now.");
         }
-        const sorted = [...rawCats].sort(
+        const hasEvent = rawCats.some(
+          (c: Category) => c.event_id != null && Number.isFinite(Number(c.event_id)),
+        );
+        const forEvent = hasEvent
+          ? rawCats.filter((c: Category) => Number(c.event_id) === eventId)
+          : rawCats;
+        if (forEvent.length === 0) {
+          throw new Error("No voting categories are available right now.");
+        }
+        const sorted = [...forEvent].sort(
           (a: Category, b: Category) => Number(a.category_id) - Number(b.category_id),
         );
         setCategories(sorted);
@@ -297,15 +309,16 @@ export default function UsersVotePage() {
     bottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
     display: "flex",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "stretch",
     gap: 8,
     zIndex: 1000,
     pointerEvents: "none",
   };
   const sharedBtnStyle: React.CSSProperties = {
     minWidth: 0,
-    height: 44,
-    padding: "0 8px",
+    minHeight: 48,
+    height: "auto",
+    padding: "10px 8px",
     fontSize: 14,
     fontWeight: 700,
     borderRadius: 12,
@@ -315,9 +328,10 @@ export default function UsersVotePage() {
   };
   const sideBtnStyle: React.CSSProperties = {
     ...sharedBtnStyle,
-    flex: "0 0 22%",
+    flex: "0 1 26%",
+    maxWidth: "120px",
     fontSize: 13,
-    padding: "0 6px",
+    padding: "10px 6px",
     backgroundColor: "#1f2a44",
     backgroundImage: "none",
     color: "#fff",
