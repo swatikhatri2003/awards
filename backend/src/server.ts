@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
 import { z } from "zod";
 import { getDb } from "./db";
+import { hashPassword, verifyPassword, signAdminToken, verifyAdminToken } from "./adminAuth";
 import { sendOtpEmail } from "./mailer";
 import { sendWhatsappOtp } from "./whatsapp";
 
@@ -33,7 +34,9 @@ app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 const uploadRoot = path.join(process.cwd(), "uploads");
 const nomineeUploadDir = path.join(uploadRoot, "nominee");
+const eventUploadDir = path.join(uploadRoot, "event");
 fs.mkdirSync(nomineeUploadDir, { recursive: true });
+fs.mkdirSync(eventUploadDir, { recursive: true });
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -55,6 +58,24 @@ const upload = multer({
   },
 });
 
+const eventUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, eventUploadDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || "").slice(0, 20) || ".jpg";
+      const safeExt = /^[.\w-]+$/.test(ext) ? ext : ".jpg";
+      const name = `${crypto.randomUUID()}${safeExt}`;
+      cb(null, name);
+    },
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb: multer.FileFilterCallback) => {
+    const ok = /^image\//i.test(file.mimetype || "");
+    if (!ok) return cb(new Error("ONLY_IMAGES_ALLOWED"));
+    return cb(null, true);
+  },
+});
+
 app.post("/api/uploads/nominee-photo", upload.single("photo"), (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ ok: false, error: "NO_FILE" });
@@ -65,8 +86,279 @@ app.post("/api/uploads/nominee-photo", upload.single("photo"), (req, res) => {
   });
 });
 
+app.post("/api/uploads/event-photo", eventUpload.single("photo"), (req, res) => {
+  const file = req.file;
+  if (!file) return res.status(400).json({ ok: false, error: "NO_FILE" });
+  return res.json({
+    ok: true,
+    filename: file.filename,
+    path: `/uploads/event/${file.filename}`,
+  });
+});
+
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+function getBearerToken(req: express.Request): string | undefined {
+  const h = req.headers.authorization || "";
+  const m = /^Bearer\s+(.+)$/i.exec(h);
+  return m?.[1]?.trim();
+}
+
+async function loadAdminFromRequest(req: express.Request): Promise<{ adminId: number; email: string } | null> {
+  const token = getBearerToken(req);
+  const payload = verifyAdminToken(token);
+  if (!payload) return null;
+  const [rows] = await db.execute<RowDataPacket[]>(
+    `SELECT admin_id, email FROM event_admin WHERE admin_id = :id LIMIT 1`,
+    { id: payload.adminId },
+  );
+  const row = rows[0];
+  if (!row) return null;
+  if (String(row.email).toLowerCase() !== String(payload.email).toLowerCase()) return null;
+  return { adminId: Number(row.admin_id), email: String(row.email) };
+}
+
+async function assertAdminOwnsEvent(adminId: number, eventId: number): Promise<boolean> {
+  const [rows] = await db.execute<RowDataPacket[]>(
+    `SELECT event_id FROM events WHERE event_id = :eid AND admin_id = :aid LIMIT 1`,
+    { eid: eventId, aid: adminId },
+  );
+  return !!rows[0];
+}
+
+function parseRequiredEventIdQuery(req: express.Request): { ok: true; eventId: number } | { ok: false } {
+  const parsed = eventIdQuerySchema.safeParse(req.query);
+  if (!parsed.success) return { ok: false };
+  const id = parsed.data.eventId;
+  if (!id) return { ok: false };
+  return { ok: true, eventId: id };
+}
+
+const adminSignInSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).max(72),
+});
+
+const adminForgotSchema = z.object({
+  email: z.string().email(),
+});
+
+const adminResetSchema = z.object({
+  email: z.string().email(),
+  otp: z.string().regex(/^\d{6}$/),
+  newPassword: z.string().min(8).max(72),
+});
+
+const adminCreateEventSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(500).optional(),
+  image: z.string().trim().max(150).optional(),
+});
+
+app.post("/api/admin/auth/sign-in", async (req, res) => {
+  const parsed = adminSignInSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT", message: "Email and password (8+ chars) are required." });
+  }
+  const email = parsed.data.email.trim().toLowerCase();
+  const password = parsed.data.password;
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT admin_id, email, password FROM event_admin WHERE email = :email LIMIT 1`,
+      { email },
+    );
+    const existing = rows[0];
+    if (!existing) {
+      const pwHash = hashPassword(password);
+      const [result] = await db.execute(
+        `INSERT INTO event_admin (email, password, otp, otp_expires_at) VALUES (:email, :pw, NULL, NULL)`,
+        { email, pw: pwHash },
+      );
+      // @ts-expect-error mysql2
+      const adminId = Number(result?.insertId ?? 0);
+      const token = signAdminToken({ adminId, email });
+      return res.json({
+        ok: true,
+        created: true,
+        token,
+        admin: { adminId, email },
+      });
+    }
+    if (!verifyPassword(password, String(existing.password ?? ""))) {
+      return res.status(401).json({
+        ok: false,
+        error: "INVALID_PASSWORD",
+        message: "Incorrect password for this email.",
+      });
+    }
+    const adminId = Number(existing.admin_id);
+    const token = signAdminToken({ adminId, email });
+    return res.json({
+      ok: true,
+      created: false,
+      token,
+      admin: { adminId, email },
+    });
+  } catch (e) {
+    console.error("admin sign-in error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.post("/api/admin/auth/forgot-password", async (req, res) => {
+  const parsed = adminForgotSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT", message: "Valid email is required." });
+  }
+  const email = parsed.data.email.trim().toLowerCase();
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT admin_id, email FROM event_admin WHERE email = :email LIMIT 1`,
+      { email },
+    );
+    if (!rows[0]) {
+      return res.json({
+        ok: true,
+        message: "If an account exists for this email, an OTP has been sent.",
+      });
+    }
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const expires = new Date(Date.now() + 10 * 60 * 1000);
+    await db.execute(
+      `UPDATE event_admin SET otp = :otp, otp_expires_at = :exp WHERE email = :email`,
+      { otp, exp: expires, email },
+    );
+    try {
+      await sendOtpEmail({ to: email, otp });
+    } catch (err) {
+      console.warn("[Email] Admin reset OTP not sent", err);
+    }
+    return res.json({
+      ok: true,
+      message: "If an account exists for this email, an OTP has been sent.",
+    });
+  } catch (e) {
+    console.error("admin forgot-password error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.post("/api/admin/auth/reset-password", async (req, res) => {
+  const parsed = adminResetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_INPUT",
+      message: "Email, 6-digit OTP, and new password (8+ chars) are required.",
+    });
+  }
+  const email = parsed.data.email.trim().toLowerCase();
+  const { otp, newPassword } = parsed.data;
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT admin_id, otp AS db_otp, otp_expires_at FROM event_admin WHERE email = :email LIMIT 1`,
+      { email },
+    );
+    const row = rows[0];
+    if (!row) {
+      return res.status(400).json({ ok: false, error: "NOT_FOUND", message: "No account found for this email." });
+    }
+    if (!row.otp_expires_at || new Date(row.otp_expires_at).getTime() < Date.now()) {
+      return res.status(400).json({ ok: false, error: "EXPIRED", message: "OTP expired. Request a new one." });
+    }
+    if (String(row.db_otp) !== otp) {
+      return res.status(400).json({ ok: false, error: "INVALID_OTP", message: "Invalid OTP." });
+    }
+    const pwHash = hashPassword(newPassword);
+    await db.execute(
+      `UPDATE event_admin SET password = :pw, otp = NULL, otp_expires_at = NULL WHERE email = :email`,
+      { pw: pwHash, email },
+    );
+    const token = signAdminToken({ adminId: Number(row.admin_id), email });
+    return res.json({ ok: true, token, admin: { adminId: Number(row.admin_id), email } });
+  } catch (e) {
+    console.error("admin reset-password error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.get("/api/admin/me", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+  return res.json({ ok: true, admin });
+});
+
+app.get("/api/admin/events", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT event_id, title, description, image, admin_id
+       FROM events
+       WHERE admin_id = :aid
+       ORDER BY event_id DESC`,
+      { aid: admin.adminId },
+    );
+    return res.json({ ok: true, events: rows });
+  } catch (e) {
+    console.error("admin list events error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.post("/api/admin/events", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+  const parsed = adminCreateEventSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT", message: "Title is required (max 200 chars)." });
+  }
+  try {
+    const [result] = await db.execute(
+      `INSERT INTO events (title, description, image, admin_id)
+       VALUES (:title, :description, :image, :admin_id)`,
+      {
+        title: parsed.data.title,
+        description: parsed.data.description ?? null,
+        image: parsed.data.image ?? null,
+        admin_id: admin.adminId,
+      },
+    );
+    // @ts-expect-error mysql2
+    const eventId = Number(result?.insertId ?? 0);
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT event_id, title, description, image, admin_id FROM events WHERE event_id = :id LIMIT 1`,
+      { id: eventId },
+    );
+    return res.json({ ok: true, event: rows[0] ?? null });
+  } catch (e) {
+    console.error("admin create event error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.get("/api/events/:eventId", async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId) || eventId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_EVENT_ID" });
+  }
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT event_id, title, description, image
+       FROM events
+       WHERE event_id = :id
+       LIMIT 1`,
+      { id: eventId },
+    );
+    const ev = rows[0];
+    if (!ev) return res.status(404).json({ ok: false, error: "EVENT_NOT_FOUND" });
+    return res.json({ ok: true, event: ev });
+  } catch (e) {
+    console.error("public event fetch error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
 });
 
 const eventIdQuerySchema = z.object({
@@ -76,30 +368,23 @@ const eventIdQuerySchema = z.object({
 function eventCategoryWhere(eventId?: number, tableAlias?: string) {
   if (!eventId) return { whereSql: "", params: {} as any };
   const col = tableAlias ? `${tableAlias}.event_id` : "event_id";
-  // Backward-compat: existing data had NULL event_id (single event).
-  // Treat NULL as event 1 so old installs still work when eventId=1 is passed.
-  if (eventId === 1) {
-    return { whereSql: `WHERE (${col} = :event_id OR ${col} IS NULL)`, params: { event_id: eventId } as any };
-  }
   return { whereSql: `WHERE ${col} = :event_id`, params: { event_id: eventId } as any };
-}
-
-function parseEventIdOrDefault1(req: express.Request) {
-  const parsedQuery = eventIdQuerySchema.safeParse(req.query);
-  if (!parsedQuery.success) return { ok: false as const };
-  return { ok: true as const, eventId: parsedQuery.data.eventId ?? 1 };
 }
 
 app.get("/api/categories", async (req, res) => {
   const parsedQuery = eventIdQuerySchema.safeParse(req.query);
-  if (!parsedQuery.success) {
-    return res.status(400).json({ ok: false, error: "INVALID_EVENT_ID" });
+  if (!parsedQuery.success || parsedQuery.data.eventId === undefined) {
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_EVENT_ID",
+      message: "Query parameter eventId is required.",
+    });
   }
   const eventId = parsedQuery.data.eventId;
   try {
     const { whereSql, params } = eventCategoryWhere(eventId);
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT category_id, name, winner_nominee_id
+      `SELECT category_id, name, winner_nominee_id, event_id
        FROM category
        ${whereSql}
        ORDER BY category_id ASC`,
@@ -114,20 +399,15 @@ app.get("/api/categories", async (req, res) => {
 
 app.get("/api/nominees", async (req, res) => {
   const parsedQuery = eventIdQuerySchema.safeParse(req.query);
-  if (!parsedQuery.success) {
-    return res.status(400).json({ ok: false, error: "INVALID_EVENT_ID" });
+  if (!parsedQuery.success || parsedQuery.data.eventId === undefined) {
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_EVENT_ID",
+      message: "Query parameter eventId is required.",
+    });
   }
   const eventId = parsedQuery.data.eventId;
   try {
-    if (!eventId) {
-      const [rows] = await db.execute<RowDataPacket[]>(
-        `SELECT nominee_id, photo, name, description, category_id, votes
-         FROM nominee
-         ORDER BY category_id ASC, nominee_id ASC`,
-      );
-      return res.json({ ok: true, nominees: rows });
-    }
-
     const { whereSql, params } = eventCategoryWhere(eventId, "c");
     const [rows] = await db.execute<RowDataPacket[]>(
       `SELECT n.nominee_id, n.photo, n.name, n.description, n.category_id, n.votes
@@ -170,7 +450,7 @@ app.get("/api/nominees/:nomineeId", async (req, res) => {
 
 const adminCreateCategorySchema = z.object({
   name: z.string().trim().min(1).max(100),
-  eventId: z.coerce.number().int().positive().optional(),
+  eventId: z.coerce.number().int().positive(),
 });
 
 const adminUpdateCategorySchema = z.object({
@@ -191,12 +471,17 @@ async function ensureCategoryInEvent(categoryId: number, eventId: number) {
 }
 
 app.post("/api/admin/categories", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED", message: "Sign in required." });
   const parsed = adminCreateCategorySchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ ok: false, error: "INVALID_INPUT" });
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT", message: "Name and eventId are required." });
   }
-  const eventId = parsed.data.eventId ?? 1;
+  const eventId = parsed.data.eventId;
   try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
     const [result] = await db.execute(
       `INSERT INTO category (name, winner_nominee_id, event_id)
        VALUES (:name, NULL, :event_id)`,
@@ -219,6 +504,8 @@ app.post("/api/admin/categories", async (req, res) => {
 });
 
 app.patch("/api/admin/categories/:categoryId", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED", message: "Sign in required." });
   const categoryId = Number(req.params.categoryId);
   if (!Number.isFinite(categoryId) || categoryId <= 0) {
     return res.status(400).json({ ok: false, error: "INVALID_CATEGORY_ID" });
@@ -227,10 +514,19 @@ app.patch("/api/admin/categories/:categoryId", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ ok: false, error: "INVALID_INPUT" });
   }
-  const eventParsed = parseEventIdOrDefault1(req);
-  if (!eventParsed.ok) return res.status(400).json({ ok: false, error: "INVALID_EVENT_ID" });
+  const eventParsed = parseRequiredEventIdQuery(req);
+  if (!eventParsed.ok) {
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_EVENT_ID",
+      message: "Query parameter eventId is required for admin updates.",
+    });
+  }
   const eventId = eventParsed.eventId;
   try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
     const found = await ensureCategoryInEvent(categoryId, eventId);
     if (!found) return res.status(404).json({ ok: false, error: "CATEGORY_NOT_FOUND" });
 
@@ -278,14 +574,25 @@ const adminUpdateNomineeSchema = z.object({
 });
 
 app.post("/api/admin/nominees", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED", message: "Sign in required." });
   const parsed = adminCreateNomineeSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ ok: false, error: "INVALID_INPUT" });
   }
-  const eventParsed = parseEventIdOrDefault1(req);
-  if (!eventParsed.ok) return res.status(400).json({ ok: false, error: "INVALID_EVENT_ID" });
+  const eventParsed = parseRequiredEventIdQuery(req);
+  if (!eventParsed.ok) {
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_EVENT_ID",
+      message: "Query parameter eventId is required.",
+    });
+  }
   const eventId = eventParsed.eventId;
   try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
     const cat = await ensureCategoryInEvent(parsed.data.category_id, eventId);
     if (!cat) return res.status(404).json({ ok: false, error: "CATEGORY_NOT_FOUND" });
 
@@ -316,6 +623,8 @@ app.post("/api/admin/nominees", async (req, res) => {
 });
 
 app.patch("/api/admin/nominees/:nomineeId", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED", message: "Sign in required." });
   const nomineeId = Number(req.params.nomineeId);
   if (!Number.isFinite(nomineeId) || nomineeId <= 0) {
     return res.status(400).json({ ok: false, error: "INVALID_NOMINEE_ID" });
@@ -324,10 +633,19 @@ app.patch("/api/admin/nominees/:nomineeId", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ ok: false, error: "INVALID_INPUT" });
   }
-  const eventParsed = parseEventIdOrDefault1(req);
-  if (!eventParsed.ok) return res.status(400).json({ ok: false, error: "INVALID_EVENT_ID" });
+  const eventParsed = parseRequiredEventIdQuery(req);
+  if (!eventParsed.ok) {
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_EVENT_ID",
+      message: "Query parameter eventId is required.",
+    });
+  }
   const eventId = eventParsed.eventId;
   try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
     const [rows] = await db.execute<RowDataPacket[]>(
       `SELECT nominee_id, category_id
        FROM nominee
