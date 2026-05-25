@@ -6,6 +6,7 @@ import styles from "./led-kiosk.module.css";
 import { setYlfCategory, setYlfGraph, setYlfPage, setYlfTimer } from "@/lib/firebase";
 import { adminAuthHeader, readAdminToken } from "../_lib/adminAuthSession";
 import { withBasePath } from "../_lib/basePath";
+import { resolveEventBannerUrl, resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
 
 type ScreenKey = "HOME" | "CATEGORY" | "WINNER" | "QR";
 type AdminScreenKey = ScreenKey | "ADMIN";
@@ -50,26 +51,46 @@ function formatTime(totalSec: number) {
 }
 
 const FALLBACK_PHOTO =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23111424'/%3E%3Ctext x='50%25' y='50%25' fill='%23aab3c5' font-size='14' text-anchor='middle' dominant-baseline='middle'%3ENo Photo%3C/text%3E%3C/svg%3E";
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23f1f5f9'/%3E%3Ctext x='50%25' y='50%25' fill='%2394a3b8' font-size='14' text-anchor='middle' dominant-baseline='middle'%3ENo Photo%3C/text%3E%3C/svg%3E";
 const ERROR_PHOTO =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23111424'/%3E%3Ctext x='50%25' y='50%25' fill='%23aab3c5' font-size='14' text-anchor='middle' dominant-baseline='middle'%3EImage error%3C/text%3E%3C/svg%3E";
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23f1f5f9'/%3E%3Ctext x='50%25' y='50%25' fill='%2394a3b8' font-size='14' text-anchor='middle' dominant-baseline='middle'%3EImage error%3C/text%3E%3C/svg%3E";
 
-const PHOTO_BASE_URL =
-  process.env.NEXT_PUBLIC_PHOTO_BASE_URL ||
-  "https://mscsuper.blr1.digitaloceanspaces.com/vdimg";
-
-function nomineePhotoUrl(_apiBase: string, photo?: string) {
-  const p = (photo || "").trim();
-  if (!p) return "";
-  if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
-
-  // Backend may return: "abc.jpg" | "nominee/abc.jpg" | "/uploads/nominee/abc.jpg"
-  // Normalize to just the filename and prefix with the spaces base URL.
-  const normalized = p.replace(/\\/g, "/");
-  const last = normalized.split("/").filter(Boolean).pop() || "";
-  const safeFile = encodeURIComponent(last);
-  const base = PHOTO_BASE_URL.replace(/\/+$/, "");
-  return `${base}/${safeFile}`;
+function IconPlus(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden {...props}>
+      <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IconPencil(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden {...props}>
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  );
+}
+function IconEye(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden {...props}>
+      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+function IconCheck(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden {...props}>
+      <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconX(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden {...props}>
+      <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 function HomeEvent({ event }: { event: EventInfo }) {
@@ -114,11 +135,8 @@ function LedDashboard({
         if (cancelled || !d?.event) return;
         const ev = d.event;
         const rawImg = (ev.image || "").trim();
-        const img = rawImg
-          ? /^https?:\/\//i.test(rawImg)
-            ? rawImg
-            : `${apiOrigin}${rawImg.startsWith("/") ? rawImg : `/${rawImg}`}`
-          : "/ylf-member-awards-banner.png";
+        const resolved = rawImg ? resolveEventBannerUrl(apiOrigin, rawImg) : "";
+        const img = resolved || "/ylf-member-awards-banner.png";
         setHomeEvent({
           name: (ev.title && String(ev.title).trim()) || "Event",
           photoSrc: img,
@@ -184,7 +202,12 @@ function LedDashboard({
     setNomineesLoadingByCategory({});
     setNomineesErrorByCategory({});
     setSelectedCategoryId(null);
-    setAdminSelectedCategoryId(null);
+    setAdminCategoryEditId(null);
+    setAddCategoryOpen(false);
+    setNomineeModalCategoryId(null);
+    setViewNomineesCategoryId(null);
+    setNomineeInlineEdit(null);
+    setInlinePhotoBlobUrl(null);
     setAdminCategories([]);
     setAdminNominees([]);
   }, [eventId]);
@@ -369,17 +392,29 @@ function LedDashboard({
   const [adminCategories, setAdminCategories] = React.useState<Category[]>([]);
   const [adminLoading, setAdminLoading] = React.useState(false);
   const [adminError, setAdminError] = React.useState<string | null>(null);
-  const [adminSelectedCategoryId, setAdminSelectedCategoryId] = React.useState<number | null>(null);
   const [adminNominees, setAdminNominees] = React.useState<Nominee[]>([]);
   const [adminCategoryNameDraft, setAdminCategoryNameDraft] = React.useState("");
-  const [adminWinnerNomineeIdDraft, setAdminWinnerNomineeIdDraft] = React.useState("");
   const [adminNewCategoryName, setAdminNewCategoryName] = React.useState("");
   const [adminNomineeForm, setAdminNomineeForm] = React.useState<{
-    nominee_id?: number;
     name: string;
     photo: string;
     description: string;
   }>({ name: "", photo: "", description: "" });
+  /** Inline edit category row (name only; winner is unchanged) */
+  const [adminCategoryEditId, setAdminCategoryEditId] = React.useState<number | null>(null);
+  const [addCategoryOpen, setAddCategoryOpen] = React.useState(false);
+  /** Add-nominee modal target category */
+  const [nomineeModalCategoryId, setNomineeModalCategoryId] = React.useState<number | null>(null);
+  /** Nominee list dropdown per category */
+  const [viewNomineesCategoryId, setViewNomineesCategoryId] = React.useState<number | null>(null);
+  /** Edit one nominee inline inside dropdown cards */
+  const [nomineeInlineEdit, setNomineeInlineEdit] = React.useState<{
+    nominee_id: number;
+    name: string;
+    photo: string;
+    description: string;
+  } | null>(null);
+  const [inlinePhotoBlobUrl, setInlinePhotoBlobUrl] = React.useState<string | null>(null);
 
   const loadAdminData = React.useCallback(async () => {
     setAdminLoading(true);
@@ -414,24 +449,25 @@ function LedDashboard({
     void loadAdminData();
   }, [screen, loadAdminData]);
 
-  const adminSelectedCategory = React.useMemo(
-    () => (adminSelectedCategoryId ? adminCategories.find((c) => c.category_id === adminSelectedCategoryId) : undefined),
-    [adminSelectedCategoryId, adminCategories],
+  const adminCategoryBeingEdited = React.useMemo(
+    () =>
+      adminCategoryEditId ? adminCategories.find((c) => c.category_id === adminCategoryEditId) : undefined,
+    [adminCategoryEditId, adminCategories],
   );
 
-  const adminNomineesForSelected = React.useMemo(() => {
-    if (!adminSelectedCategoryId) return [];
-    return adminNominees
-      .filter((n) => Number(n?.category_id) === adminSelectedCategoryId)
-      .slice()
-      .sort((a, b) => Number(a.nominee_id) - Number(b.nominee_id));
-  }, [adminNominees, adminSelectedCategoryId]);
+  const nomineesForCategory = React.useCallback(
+    (categoryId: number) =>
+      adminNominees
+        .filter((n) => Number(n?.category_id) === categoryId)
+        .slice()
+        .sort((a, b) => Number(a.nominee_id) - Number(b.nominee_id)),
+    [adminNominees],
+  );
 
   React.useEffect(() => {
-    if (!adminSelectedCategory) return;
-    setAdminCategoryNameDraft(adminSelectedCategory.name || "");
-    setAdminWinnerNomineeIdDraft(adminSelectedCategory.winner_nominee_id ? String(adminSelectedCategory.winner_nominee_id) : "");
-  }, [adminSelectedCategory]);
+    if (!adminCategoryBeingEdited) return;
+    setAdminCategoryNameDraft(adminCategoryBeingEdited.name || "");
+  }, [adminCategoryBeingEdited]);
 
   async function adminCreateCategory() {
     const name = adminNewCategoryName.trim();
@@ -447,6 +483,7 @@ function LedDashboard({
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "CREATE_CATEGORY_FAILED");
       setAdminNewCategoryName("");
+      setAddCategoryOpen(false);
       await loadAdminData();
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : "CREATE_CATEGORY_FAILED");
@@ -456,26 +493,19 @@ function LedDashboard({
   }
 
   async function adminUpdateCategory() {
-    if (!adminSelectedCategoryId) return;
+    if (!adminCategoryEditId) return;
     const name = adminCategoryNameDraft.trim();
-    const rawWinner = adminWinnerNomineeIdDraft.trim();
-    const winnerVal: number | null = rawWinner ? Number(rawWinner) : null;
-    if (rawWinner) {
-      const n = Number(rawWinner);
-      if (!Number.isFinite(n) || n <= 0) {
-        setAdminError("INVALID_WINNER_ID");
-        return;
-      }
-    }
-    if (rawWinner && winnerVal === null) {
-      setAdminError("INVALID_WINNER_ID");
-      return;
-    }
+    if (!name) return;
+    const keepWinner = adminCategoryBeingEdited?.winner_nominee_id;
+    const winnerVal: number | null =
+      keepWinner != null && Number.isFinite(Number(keepWinner)) && Number(keepWinner) > 0
+        ? Number(keepWinner)
+        : null;
     setAdminLoading(true);
     setAdminError(null);
     try {
       const res = await fetch(
-        `${apiBase}/admin/categories/${adminSelectedCategoryId}?eventId=${eventId}`,
+        `${apiBase}/admin/categories/${adminCategoryEditId}?eventId=${eventId}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
@@ -484,6 +514,7 @@ function LedDashboard({
       );
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "UPDATE_CATEGORY_FAILED");
+      setAdminCategoryEditId(null);
       await loadAdminData();
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
@@ -492,40 +523,71 @@ function LedDashboard({
     }
   }
 
+  function closeNomineeModal() {
+    revokeNomineePhotoBlob();
+    setNomineeModalCategoryId(null);
+    setAdminNomineeForm({ name: "", photo: "", description: "" });
+  }
+
   async function adminSaveNominee() {
-    if (!adminSelectedCategoryId) return;
+    if (!nomineeModalCategoryId) return;
     const name = adminNomineeForm.name.trim();
     if (!name) return;
     setAdminLoading(true);
     setAdminError(null);
     try {
-      const isEdit = !!adminNomineeForm.nominee_id;
-      const url = isEdit
-        ? `${apiBase}/admin/nominees/${adminNomineeForm.nominee_id}?eventId=${eventId}`
-        : `${apiBase}/admin/nominees?eventId=${eventId}`;
-      const method = isEdit ? "PATCH" : "POST";
-      const body = isEdit
-        ? {
-            name,
-            photo: adminNomineeForm.photo.trim(),
-            description: adminNomineeForm.description.trim() || null,
-            category_id: adminSelectedCategoryId,
-          }
-        : {
-            name,
-            photo: adminNomineeForm.photo.trim(),
-            description: adminNomineeForm.description.trim() || undefined,
-            category_id: adminSelectedCategoryId,
-          };
-
-      const res = await fetch(url, {
-        method,
+      const res = await fetch(`${apiBase}/admin/nominees?eventId=${eventId}`, {
+        method: "POST",
         headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          name,
+          photo: adminNomineeForm.photo.trim(),
+          description: adminNomineeForm.description.trim() || undefined,
+          category_id: nomineeModalCategoryId,
+        }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "SAVE_NOMINEE_FAILED");
-      setAdminNomineeForm({ name: "", photo: "", description: "" });
+      closeNomineeModal();
+      await loadAdminData();
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "SAVE_NOMINEE_FAILED");
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function saveNomineeInline() {
+    if (!nomineeInlineEdit) return;
+    const name = nomineeInlineEdit.name.trim();
+    if (!name) return;
+    const cat = adminNominees.find((n) => n.nominee_id === nomineeInlineEdit.nominee_id);
+    const category_id = cat ? Number(cat.category_id) : null;
+    if (category_id == null || !Number.isFinite(category_id)) {
+      setAdminError("SAVE_NOMINEE_FAILED");
+      return;
+    }
+    setAdminLoading(true);
+    setAdminError(null);
+    try {
+      const res = await fetch(
+        `${apiBase}/admin/nominees/${nomineeInlineEdit.nominee_id}?eventId=${eventId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
+          body: JSON.stringify({
+            name,
+            photo: nomineeInlineEdit.photo.trim(),
+            description: nomineeInlineEdit.description.trim() || null,
+            category_id,
+          }),
+        },
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "SAVE_NOMINEE_FAILED");
+      if (inlinePhotoBlobUrl) URL.revokeObjectURL(inlinePhotoBlobUrl);
+      setInlinePhotoBlobUrl(null);
+      setNomineeInlineEdit(null);
       await loadAdminData();
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : "SAVE_NOMINEE_FAILED");
@@ -535,8 +597,26 @@ function LedDashboard({
   }
 
   const [adminPhotoUploading, setAdminPhotoUploading] = React.useState(false);
+  /** Local object URL for immediate preview while uploading; revoked when replaced or cleared */
+  const [nomineePhotoBlobUrl, setNomineePhotoBlobUrl] = React.useState<string | null>(null);
 
-  async function adminUploadNomineePhoto(file: File) {
+  const revokeNomineePhotoBlob = React.useCallback(() => {
+    setNomineePhotoBlobUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      setNomineePhotoBlobUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    };
+  }, []);
+
+  async function adminUploadNomineePhoto(file: File, mode: "modal" | "inline" = "modal") {
     setAdminPhotoUploading(true);
     setAdminError(null);
     try {
@@ -547,7 +627,12 @@ function LedDashboard({
       if (!res.ok) throw new Error(data?.error || "PHOTO_UPLOAD_FAILED");
       const filename = String(data?.filename || "");
       if (!filename) throw new Error("PHOTO_UPLOAD_FAILED");
-      setAdminNomineeForm((p) => ({ ...p, photo: filename }));
+      if (mode === "modal") {
+        revokeNomineePhotoBlob();
+        setAdminNomineeForm((p) => ({ ...p, photo: filename }));
+      } else {
+        setNomineeInlineEdit((p) => (p ? { ...p, photo: filename } : null));
+      }
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : "PHOTO_UPLOAD_FAILED");
     } finally {
@@ -633,11 +718,12 @@ function LedDashboard({
 
                 {categoriesError ? <div className="error" style={{ marginTop: 12 }}>Error: {categoriesError}</div> : null}
 
-                <div className="list" role="list" style={{ maxHeight: "unset", overflow: "visible", marginTop: 14 }}>
+                <div className={styles.categoryPickGrid} role="list">
                   {categories.map((c) => (
                     <button
                       key={c.category_id}
                       type="button"
+                      role="listitem"
                       className={selectedCategoryId === c.category_id ? "listItem listItemActive" : "listItem"}
                       onClick={() => {
                         void selectCategory(c);
@@ -645,7 +731,7 @@ function LedDashboard({
                       style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
                     >
                       <div className="listTitle" style={{ whiteSpace: "normal" }}>
-                        <span className="badge">#{c.category_id}</span> {c.name}
+                        {c.name}
                       </div>
                       <div className="badge" aria-hidden="true">
                         Open
@@ -657,9 +743,7 @@ function LedDashboard({
             ) : (
               <>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                  <div style={{ fontSize: "clamp(22px, 3vw, 44px)", fontWeight: 950, letterSpacing: "-0.6px" }}>
-                    {selectedCategory?.name || "Category"}
-                  </div>
+                  <div className={styles.categoryHeading}>{selectedCategory?.name || "Category"}</div>
                 </div>
 
                 <div style={{ marginTop: 14 }}>
@@ -819,6 +903,7 @@ function LedDashboard({
 
                   <div className="nomineeGrid">
                     {selectedNominees.map((n) => {
+                      const thumb = resolveNomineePhotoUrl(apiOrigin, n.photo);
                       return (
                         <div
                           key={n.nominee_id}
@@ -829,11 +914,21 @@ function LedDashboard({
                             borderRadius: 12,
                             display: "flex",
                             alignItems: "center",
-                            justifyContent: "space-between",
+                            justifyContent: "flex-start",
                             gap: 12,
                           }}
                         >
-                          <div className="listTitle" style={{ whiteSpace: "normal" }}>
+                          {thumb ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              className={styles.nomineeThumb}
+                              src={thumb}
+                              alt=""
+                              width={44}
+                              height={44}
+                            />
+                          ) : null}
+                          <div className="listTitle" style={{ whiteSpace: "normal", flex: 1 }}>
                             {n.name}
                           </div>
                         </div>
@@ -851,141 +946,63 @@ function LedDashboard({
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
               <div className={styles.sectionTitle}>Winners</div>
               <div className="panelMeta">
-                {categoriesLoading ? "Loading..." : categoriesError ? "Failed" : `${categories.length} categories`}
+                {categoriesLoading
+                  ? "Loading..."
+                  : categoriesError
+                    ? "Failed"
+                    : `${categories.filter((c) => c.winner_nominee_id != null && Number(c.winner_nominee_id) > 0).length} declared`}
               </div>
             </div>
 
             {categoriesError ? <div className="error" style={{ marginTop: 12 }}>Error: {categoriesError}</div> : null}
 
-            <div
-              style={{
-                marginTop: 14,
-                display: "grid",
-                gridTemplateColumns: "minmax(260px, 420px) 1fr",
-                gap: 14,
-                alignItems: "start",
-              }}
-            >
-              <div className="panel" style={{ minHeight: 240 }}>
-                <div className="panelHeader" style={{ marginBottom: 10 }}>
-                  <div className="panelTitle" style={{ fontSize: 14 }}>
-                    Categories
-                  </div>
-                  <div className="panelMeta">
-                    {categoriesLoading ? "Loading..." : categoriesError ? "Failed" : `${categories.length} categories`}
-                  </div>
-                </div>
-
-                <div className="list" role="list" style={{ maxHeight: "unset", overflow: "visible" }}>
-                  {categories.map((c) => {
-                    const nominees = nomineesByCategory[c.category_id] || [];
-                    const nomineesLoading = nomineesLoadingByCategory[c.category_id] || false;
-                    const nomineesError = nomineesErrorByCategory[c.category_id] || null;
-                    const totalVotes = Array.isArray(nominees)
-                      ? nominees.reduce((sum, n) => sum + Number(n?.votes ?? 0), 0)
-                      : 0;
-
-                    return (
-                      <button
-                        key={c.category_id}
-                        type="button"
-                        className={selectedCategoryId === c.category_id ? "listItem listItemActive" : "listItem"}
-                        onClick={() => {
-                          setSelectedCategoryId(c.category_id);
-                          void loadNominees(c.category_id);
-                        }}
-                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}
-                        title={c.name}
-                      >
-                        <div className="listTitle" style={{ whiteSpace: "normal" }}>
-                          <span className="badge">#{c.category_id}</span> {c.name}
-                        </div>
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                          {nomineesError ? <span className="badge">Err</span> : null}
-                          {nomineesLoading ? (
-                            <span className="badge">...</span>
-                          ) : (
-                            <span className="badge" title="Total votes in this category">
-                              {Array.isArray(nomineesByCategory[c.category_id]) ? `${totalVotes} votes` : "Open"}
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+            {!categoriesLoading && !categoriesError &&
+            categories.filter((c) => c.winner_nominee_id != null && Number(c.winner_nominee_id) > 0).length === 0 ? (
+              <div className="hint" style={{ marginTop: 16 }}>
+                No winners yet — declare a winner per category in Admin.
               </div>
+            ) : null}
 
-              <div className="panel" style={{ minHeight: 240 }}>
-                <div className="panelHeader" style={{ marginBottom: 10 }}>
-                  <div className="panelTitle" style={{ fontSize: 14 }}>
-                    {selectedCategory ? selectedCategory.name : "Select a category"}
-                  </div>
-                  <div className="panelMeta">
-                    {selectedCategoryId
-                      ? selectedNomineesLoading
-                        ? "Loading..."
-                        : selectedNomineesError
-                          ? "Failed"
-                          : `${selectedNominees.length} nominees`
-                      : ""}
-                  </div>
-                </div>
+            <div className={styles.winnerCelebrateGrid}>
+              {categories
+                .filter((c) => c.winner_nominee_id != null && Number(c.winner_nominee_id) > 0)
+                .map((c) => {
+                  const nominees = nomineesByCategory[c.category_id] || [];
+                  const nomineesLoading = nomineesLoadingByCategory[c.category_id] || false;
+                  const nomineesError = nomineesErrorByCategory[c.category_id] || null;
+                  const wid = Number(c.winner_nominee_id);
+                  const winnerNominee = Array.isArray(nominees)
+                    ? nominees.find((n) => Number(n.nominee_id) === wid)
+                    : undefined;
+                  const thumb = winnerNominee?.photo
+                    ? resolveNomineePhotoUrl(apiOrigin, winnerNominee.photo)
+                    : "";
 
-                {!selectedCategoryId ? (
-                  <div className="hint">Click a category to see nominee votes.</div>
-                ) : selectedNomineesError ? (
-                  <div className="error">Error: {selectedNomineesError}</div>
-                ) : selectedNomineesLoading ? (
-                  <div className="hint">Loading nominees...</div>
-                ) : selectedNominees.length === 0 ? (
-                  <div className="hint">No nominees found for this category.</div>
-                ) : (
-                  <div className="nomineeGrid">
-                    {[...selectedNominees]
-                      .sort((a, b) => {
-                        const dv = Number(b?.votes ?? 0) - Number(a?.votes ?? 0);
-                        if (dv !== 0) return dv;
-                        return String(a?.name ?? "").localeCompare(String(b?.name ?? ""), undefined, {
-                          sensitivity: "base",
-                        });
-                      })
-                      .map((n, idx) => {
-                        const votes = Number(n?.votes ?? 0);
-                        const isTop = idx === 0;
-                        return (
-                          <div
-                            key={n.nominee_id}
-                            className="listItem"
-                            style={{
-                              cursor: "default",
-                              padding: "12px 14px",
-                              borderRadius: 12,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              gap: 12,
-                              outline: isTop ? "2px solid rgba(255, 228, 26, 0.85)" : "none",
-                            }}
-                          >
-                            <div className="listTitle" style={{ whiteSpace: "normal" }}>
-                              <span className="badge" style={{ marginRight: 8 }}>
-                                #{idx + 1}
-                              </span>
-                              {n.name}
-                            </div>
-                            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                              {isTop ? <span className="badge">TOP</span> : null}
-                              <span className="badge" title="Total votes">
-                                {votes}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                  </div>
-                )}
-              </div>
+                  return (
+                    <article key={c.category_id} className={styles.winnerCard}>
+                      <div className={styles.winnerCardCategory}>{c.name}</div>
+                      <div className={styles.winnerCardPhotoWrap}>
+                        {nomineesError ? (
+                          <div className={styles.winnerCardPlaceholder}>Could not load</div>
+                        ) : nomineesLoading && !winnerNominee ? (
+                          <div className={styles.winnerCardPlaceholder}>Loading…</div>
+                        ) : thumb ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img className={styles.winnerCardPhoto} src={thumb} alt="" />
+                        ) : (
+                          <div className={styles.winnerCardPlaceholder}>No photo</div>
+                        )}
+                      </div>
+                      <div className={styles.winnerCardWinnerName}>
+                        {winnerNominee?.name?.trim()
+                          ? winnerNominee.name
+                          : nomineesLoading && !nomineesError
+                            ? "…"
+                            : "Winner not found"}
+                      </div>
+                    </article>
+                  );
+                })}
             </div>
           </section>
         ) : null}
@@ -995,7 +1012,8 @@ function LedDashboard({
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
               <div className={styles.sectionTitle}>Admin</div>
               <div className="panelMeta">
-                Event #{eventId} {adminLoading ? "• Working..." : ""}
+                {homeEvent.name}
+                {adminLoading ? " • Working..." : ""}
               </div>
             </div>
 
@@ -1004,10 +1022,10 @@ function LedDashboard({
                 <div className="panelTitle" style={{ fontSize: 14 }}>
                   Register link
                 </div>
-                <div className="panelMeta">Passes eventId</div>
+                <div className="panelMeta">Link includes your event</div>
               </div>
               <a className="linkBtn" href={withBasePath(`/register?eventId=${eventId}`)}>
-                Open registration for Event #{eventId}
+                Open registration page
               </a>
             </div>
 
@@ -1017,186 +1035,397 @@ function LedDashboard({
               </div>
             ) : null}
 
-            <div
-              style={{
-                marginTop: 14,
-                display: "grid",
-                gridTemplateColumns: "minmax(260px, 420px) 1fr",
-                gap: 14,
-                alignItems: "start",
-              }}
-            >
-              <div className="panel" style={{ minHeight: 240 }}>
-                <div className="panelHeader" style={{ marginBottom: 10 }}>
-                  <div className="panelTitle" style={{ fontSize: 14 }}>
-                    Categories
-                  </div>
-                  <div className="panelMeta">{adminCategories.length} total</div>
+            <div className={styles.adminCategoriesBlock}>
+              <div className={styles.adminCatToolbar}>
+                <div className={styles.sectionTitle} style={{ marginBottom: 0 }}>
+                  Categories
                 </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="panelMeta">{adminCategories.length} total</span>
+                  <button
+                    type="button"
+                    className={styles.adminIconBtn}
+                    onClick={() => setAddCategoryOpen((o) => !o)}
+                    aria-expanded={addCategoryOpen}
+                    aria-label={addCategoryOpen ? "Close add category" : "Add category"}
+                    title="Add category"
+                  >
+                    <IconPlus />
+                  </button>
+                </div>
+              </div>
 
-                <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+              {addCategoryOpen ? (
+                <div className={styles.adminAddCategoryBar}>
                   <input
-                    className="input"
+                    className={`input ${styles.inputGrow}`}
                     value={adminNewCategoryName}
                     placeholder="New category name"
                     onChange={(e) => setAdminNewCategoryName(e.target.value)}
                     disabled={adminLoading}
+                    aria-label="New category name"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void adminCreateCategory();
+                    }}
                   />
-                  <button className="btn" type="button" onClick={adminCreateCategory} disabled={adminLoading}>
-                    Add
+                  <button
+                    type="button"
+                    className={`${styles.adminIconBtn} ${styles.adminIconBtnPrimary}`}
+                    onClick={adminCreateCategory}
+                    disabled={adminLoading || !adminNewCategoryName.trim()}
+                    aria-label="Create category"
+                    title="Save category"
+                  >
+                    <IconCheck />
                   </button>
                 </div>
+              ) : null}
 
-                <div className="list" role="list" style={{ maxHeight: "unset", overflow: "visible" }}>
-                  {adminCategories.map((c) => (
-                    <button
-                      key={c.category_id}
-                      type="button"
-                      className={
-                        adminSelectedCategoryId === c.category_id ? "listItem listItemActive" : "listItem"
-                      }
-                      onClick={() => setAdminSelectedCategoryId(c.category_id)}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}
-                      title={c.name}
-                    >
-                      <div className="listTitle" style={{ whiteSpace: "normal" }}>
-                        <span className="badge">#{c.category_id}</span> {c.name}
-                      </div>
-                      {c.winner_nominee_id ? <span className="badge">Winner</span> : <span className="badge">—</span>}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <div className={styles.adminCategoryList}>
+                {adminCategories.map((c) => {
+                  const noms = nomineesForCategory(c.category_id);
+                  const nCount = noms.length;
+                  /* View opens nominee cards; allow when there is at least one to view/edit */
+                  const showView = nCount >= 1;
+                  const editingCat = adminCategoryEditId === c.category_id;
+                  const viewOpen = viewNomineesCategoryId === c.category_id;
 
-              <div className="panel" style={{ minHeight: 240 }}>
-                <div className="panelHeader" style={{ marginBottom: 10 }}>
-                  <div className="panelTitle" style={{ fontSize: 14 }}>
-                    {adminSelectedCategory ? `Edit: ${adminSelectedCategory.name}` : "Select a category"}
-                  </div>
-                  <div className="panelMeta">
-                    {adminSelectedCategoryId ? `${adminNomineesForSelected.length} nominees` : ""}
-                  </div>
-                </div>
-
-                {!adminSelectedCategory ? (
-                  <div className="hint">Pick a category to edit and manage nominees.</div>
-                ) : (
-                  <>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 180px 120px", gap: 10 }}>
-                      <input
-                        className="input"
-                        value={adminCategoryNameDraft}
-                        onChange={(e) => setAdminCategoryNameDraft(e.target.value)}
-                        placeholder="Category name"
-                        disabled={adminLoading}
-                      />
-                      <input
-                        className="input"
-                        value={adminWinnerNomineeIdDraft}
-                        onChange={(e) => setAdminWinnerNomineeIdDraft(e.target.value.replace(/[^\d]/g, ""))}
-                        placeholder="Winner ID"
-                        inputMode="numeric"
-                        disabled={adminLoading}
-                      />
-                      <button className="btn" type="button" onClick={adminUpdateCategory} disabled={adminLoading}>
-                        Save
-                      </button>
-                    </div>
-
-                    <div style={{ marginTop: 14 }}>
-                      <div className="panelHeader" style={{ marginBottom: 10 }}>
-                        <div className="panelTitle" style={{ fontSize: 14 }}>
-                          Nominees
-                        </div>
-                        <div className="panelMeta">Add / update</div>
-                      </div>
-
-                      <input
-                        className="input"
-                        value={adminNomineeForm.name}
-                        onChange={(e) => setAdminNomineeForm((p) => ({ ...p, name: e.target.value }))}
-                        placeholder="Nominee name"
-                        disabled={adminLoading}
-                      />
-                      <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
-                        <input
-                          className="input"
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const f = e.currentTarget.files?.[0];
-                            if (f) void adminUploadNomineePhoto(f);
-                            e.currentTarget.value = "";
-                          }}
-                          disabled={adminLoading || adminPhotoUploading}
-                        />
-                        {adminPhotoUploading ? (
-                          <span className="hint" style={{ margin: 0 }}>
-                            Uploading...
-                          </span>
-                        ) : null}
-                      </div>
-                      <textarea
-                        className="input"
-                        value={adminNomineeForm.description}
-                        onChange={(e) => setAdminNomineeForm((p) => ({ ...p, description: e.target.value }))}
-                        placeholder="Description (optional)"
-                        style={{ marginTop: 10, minHeight: 96, resize: "vertical" }}
-                        disabled={adminLoading}
-                      />
-                      <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center" }}>
-                        <button className="btn" type="button" onClick={adminSaveNominee} disabled={adminLoading}>
-                          {adminNomineeForm.nominee_id ? "Update nominee" : "Add nominee"}
-                        </button>
-                        {adminNomineeForm.nominee_id ? (
-                          <button
-                            className="btn btnGhost"
-                            type="button"
-                            onClick={() => setAdminNomineeForm({ name: "", photo: "", description: "" })}
+                  return (
+                    <div key={c.category_id} className={styles.adminCategoryRow}>
+                      {editingCat ? (
+                        <div className={styles.adminCategoryEditBar}>
+                          <input
+                            className="input"
+                            value={adminCategoryNameDraft}
+                            onChange={(e) => setAdminCategoryNameDraft(e.target.value)}
+                            placeholder="Category name"
                             disabled={adminLoading}
-                          >
-                            Cancel edit
-                          </button>
-                        ) : null}
-                      </div>
-
-                      <div className="nomineeGrid" style={{ marginTop: 12 }}>
-                        {adminNomineesForSelected.map((n) => (
+                            aria-label="Category name"
+                          />
                           <button
-                            key={n.nominee_id}
                             type="button"
-                            className="listItem"
-                            onClick={() =>
-                              setAdminNomineeForm({
-                                nominee_id: n.nominee_id,
-                                name: n.name || "",
-                                photo: n.photo || "",
-                                description: n.description || "",
-                              })
-                            }
-                            style={{
-                              textAlign: "left",
-                              padding: "12px 14px",
-                              borderRadius: 12,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              gap: 12,
-                            }}
-                            title="Click to edit"
+                            className={`${styles.adminIconBtn} ${styles.adminIconBtnPrimary}`}
+                            onClick={adminUpdateCategory}
+                            disabled={adminLoading}
+                            aria-label="Save category"
+                            title="Save"
                           >
-                            <div className="listTitle" style={{ whiteSpace: "normal" }}>
-                              <span className="badge">#{n.nominee_id}</span> {n.name}
-                            </div>
-                            <span className="badge">{Number(n.votes ?? 0)}</span>
+                            <IconCheck />
                           </button>
-                        ))}
-                      </div>
+                          <button
+                            type="button"
+                            className={styles.adminIconBtn}
+                            onClick={() => setAdminCategoryEditId(null)}
+                            disabled={adminLoading}
+                            aria-label="Cancel"
+                            title="Cancel"
+                          >
+                            <IconX />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className={styles.adminCategoryRowMain}>
+                          <div className={styles.adminCategoryTitleWrap}>
+                            <span className="listTitle" style={{ whiteSpace: "normal" }}>
+                              {c.name}
+                            </span>
+                            {c.winner_nominee_id ? (
+                              <span className="badge" style={{ marginLeft: 8 }}>
+                                Winner set
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className={styles.adminRowIconGroup}>
+                            <button
+                              type="button"
+                              className={styles.adminIconBtn}
+                              onClick={() => {
+                                if (adminCategoryEditId === c.category_id) {
+                                  setAdminCategoryEditId(null);
+                                } else {
+                                  setAdminCategoryEditId(c.category_id);
+                                  setViewNomineesCategoryId(null);
+                                  setNomineeInlineEdit(null);
+                                }
+                              }}
+                              aria-label="Edit category"
+                              title="Edit category"
+                            >
+                              <IconPencil />
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.adminIconBtn}
+                              onClick={() => {
+                                revokeNomineePhotoBlob();
+                                setAdminNomineeForm({ name: "", photo: "", description: "" });
+                                setNomineeModalCategoryId(c.category_id);
+                                setViewNomineesCategoryId(null);
+                              }}
+                              aria-label="Add nominee"
+                              title="Add nominee"
+                            >
+                              <IconPlus />
+                            </button>
+                            {showView ? (
+                              <button
+                                type="button"
+                                className={`${styles.adminIconBtn} ${viewOpen ? styles.adminIconBtnActive : ""}`}
+                                onClick={() => {
+                                  setViewNomineesCategoryId((id) => (id === c.category_id ? null : c.category_id));
+                                  setNomineeInlineEdit(null);
+                                  if (inlinePhotoBlobUrl) {
+                                    URL.revokeObjectURL(inlinePhotoBlobUrl);
+                                    setInlinePhotoBlobUrl(null);
+                                  }
+                                }}
+                                aria-expanded={viewOpen}
+                                aria-label="View nominees"
+                                title="View nominees"
+                              >
+                                <IconEye />
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      )}
+
+                      {viewOpen ? (
+                        <div className={styles.adminNomineeDropdown} role="region" aria-label={`Nominees in ${c.name}`}>
+                          {noms.map((n) => {
+                            const thumb = resolveNomineePhotoUrl(apiOrigin, n.photo);
+                            const editing =
+                              nomineeInlineEdit && nomineeInlineEdit.nominee_id === n.nominee_id;
+                            return (
+                              <div key={n.nominee_id} className={styles.adminNomineeCard}>
+                                {editing && nomineeInlineEdit ? (
+                                  <div className={styles.adminNomineeCardEdit}>
+                                    <input
+                                      className="input"
+                                      value={nomineeInlineEdit.name}
+                                      onChange={(e) =>
+                                        setNomineeInlineEdit((p) =>
+                                          p ? { ...p, name: e.target.value } : null,
+                                        )
+                                      }
+                                      placeholder="Name"
+                                      disabled={adminLoading}
+                                    />
+                                    <textarea
+                                      className="input"
+                                      value={nomineeInlineEdit.description}
+                                      onChange={(e) =>
+                                        setNomineeInlineEdit((p) =>
+                                          p ? { ...p, description: e.target.value } : null,
+                                        )
+                                      }
+                                      placeholder="Description"
+                                      style={{ minHeight: 72, resize: "vertical" }}
+                                      disabled={adminLoading}
+                                    />
+                                    <input
+                                      className="input"
+                                      type="file"
+                                      accept="image/*"
+                                      onChange={(e) => {
+                                        const f = e.currentTarget.files?.[0];
+                                        if (!f) return;
+                                        setInlinePhotoBlobUrl((prev) => {
+                                          if (prev) URL.revokeObjectURL(prev);
+                                          return URL.createObjectURL(f);
+                                        });
+                                        void adminUploadNomineePhoto(f, "inline");
+                                      }}
+                                      disabled={adminLoading || adminPhotoUploading}
+                                    />
+                                    {(() => {
+                                      const serverSrc = nomineeInlineEdit.photo.trim()
+                                        ? resolveNomineePhotoUrl(apiOrigin, nomineeInlineEdit.photo)
+                                        : "";
+                                      const previewSrc = inlinePhotoBlobUrl || serverSrc;
+                                      return previewSrc ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img className={styles.adminNomineeCardPhoto} src={previewSrc} alt="" />
+                                      ) : null;
+                                    })()}
+                                    <div className={styles.adminNomineeCardActions}>
+                                      <button
+                                        type="button"
+                                        className={`${styles.adminIconBtn} ${styles.adminIconBtnPrimary}`}
+                                        onClick={saveNomineeInline}
+                                        disabled={adminLoading}
+                                        aria-label="Save nominee"
+                                      >
+                                        <IconCheck />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={styles.adminIconBtn}
+                                        onClick={() => {
+                                          setNomineeInlineEdit(null);
+                                          if (inlinePhotoBlobUrl) {
+                                            URL.revokeObjectURL(inlinePhotoBlobUrl);
+                                            setInlinePhotoBlobUrl(null);
+                                          }
+                                        }}
+                                        disabled={adminLoading}
+                                        aria-label="Cancel"
+                                      >
+                                        <IconX />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className={styles.adminNomineeCardRead}>
+                                    <div className={styles.adminNomineeCardLeft}>
+                                      {thumb ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img className={styles.adminNomineeCardPhoto} src={thumb} alt="" />
+                                      ) : (
+                                        <div className={styles.adminNomineeCardPhotoPlaceholder} aria-hidden />
+                                      )}
+                                      <div className={styles.adminNomineeCardText}>
+                                        <div className="listTitle" style={{ whiteSpace: "normal" }}>
+                                          {n.name}
+                                        </div>
+                                        {n.description ? (
+                                          <p className={styles.adminNomineeDesc}>{n.description}</p>
+                                        ) : (
+                                          <p className="hint" style={{ margin: 0 }}>
+                                            No description
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className={styles.adminIconBtn}
+                                      onClick={() => {
+                                        setNomineeInlineEdit({
+                                          nominee_id: n.nominee_id,
+                                          name: n.name || "",
+                                          photo: n.photo || "",
+                                          description: n.description || "",
+                                        });
+                                        setInlinePhotoBlobUrl((prev) => {
+                                          if (prev) URL.revokeObjectURL(prev);
+                                          return null;
+                                        });
+                                      }}
+                                      aria-label={`Edit ${n.name}`}
+                                      title="Edit nominee"
+                                    >
+                                      <IconPencil />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </div>
-                  </>
-                )}
+                  );
+                })}
               </div>
             </div>
+
+            {nomineeModalCategoryId !== null ? (
+              <div
+                className={styles.adminModalBackdrop}
+                role="presentation"
+                onClick={closeNomineeModal}
+                onKeyDown={(e) => e.key === "Escape" && closeNomineeModal()}
+              >
+                <div
+                  className={styles.adminModal}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="admin-add-nominee-title"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className={styles.adminModalHead}>
+                    <h2 id="admin-add-nominee-title" className={styles.adminModalTitle}>
+                      Add nominee
+                    </h2>
+                    <button
+                      type="button"
+                      className={styles.adminIconBtn}
+                      onClick={closeNomineeModal}
+                      aria-label="Close"
+                    >
+                      <IconX />
+                    </button>
+                  </div>
+                  <div className="field" style={{ marginBottom: 12 }}>
+                    <div className="label">Name</div>
+                    <input
+                      className="input"
+                      value={adminNomineeForm.name}
+                      onChange={(e) => setAdminNomineeForm((p) => ({ ...p, name: e.target.value }))}
+                      placeholder="Nominee name"
+                      disabled={adminLoading}
+                    />
+                  </div>
+                  <div className="field" style={{ marginBottom: 12 }}>
+                    <div className="label">Photo</div>
+                    <input
+                      className="input"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const f = e.currentTarget.files?.[0];
+                        if (!f) return;
+                        setNomineePhotoBlobUrl((prev) => {
+                          if (prev) URL.revokeObjectURL(prev);
+                          return URL.createObjectURL(f);
+                        });
+                        void adminUploadNomineePhoto(f, "modal");
+                      }}
+                      disabled={adminLoading || adminPhotoUploading}
+                    />
+                    {adminPhotoUploading ? (
+                      <div style={{ marginTop: 8 }}>
+                        <span className="hint" style={{ margin: 0 }}>
+                          Uploading…
+                        </span>
+                      </div>
+                    ) : null}
+                    {(() => {
+                      const serverSrc = adminNomineeForm.photo.trim()
+                        ? resolveNomineePhotoUrl(apiOrigin, adminNomineeForm.photo)
+                        : "";
+                      const previewSrc = nomineePhotoBlobUrl || serverSrc;
+                      return previewSrc ? (
+                        <div style={{ marginTop: 10 }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img className={styles.previewPhoto} src={previewSrc} alt="" />
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                  <div className="field" style={{ marginBottom: 12 }}>
+                    <div className="label">Description (optional)</div>
+                    <textarea
+                      className="input"
+                      value={adminNomineeForm.description}
+                      onChange={(e) => setAdminNomineeForm((p) => ({ ...p, description: e.target.value }))}
+                      placeholder="Short description"
+                      style={{ minHeight: 88, resize: "vertical" }}
+                      disabled={adminLoading}
+                    />
+                  </div>
+                  <div className={styles.adminModalFooter}>
+                    <button type="button" className="btn btnGhost" onClick={closeNomineeModal} disabled={adminLoading}>
+                      Cancel
+                    </button>
+                    <button type="button" className="btn" onClick={adminSaveNominee} disabled={adminLoading}>
+                      Add nominee
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </section>
         ) : null}
         </div>

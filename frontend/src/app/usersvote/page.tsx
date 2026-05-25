@@ -11,6 +11,7 @@ import {
   readUid,
   readUserVotes,
 } from "../_lib/userSession";
+import { resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
 
 const FALLBACK_PHOTO =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23111424'/%3E%3Ctext x='50%25' y='50%25' fill='%23aab3c5' font-size='14' text-anchor='middle' dominant-baseline='middle'%3ENo Photo%3C/text%3E%3C/svg%3E";
@@ -63,21 +64,6 @@ function parseDescription(raw?: string | null): {
   return { tagline: paragraphs[0], bullets: paragraphs.slice(1) };
 }
 
-const PHOTO_BASE_URL =
-  process.env.NEXT_PUBLIC_PHOTO_BASE_URL ||
-  "https://mscsuper.blr1.digitaloceanspaces.com/vdimg";
-
-function nomineePhotoUrl(_apiBase: string, photo?: string) {
-  const p = (photo || "").trim();
-  if (!p) return "";
-  if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
-  const normalized = p.replace(/\\/g, "/");
-  const last = normalized.split("/").filter(Boolean).pop() || "";
-  const safeFile = encodeURIComponent(last);
-  const base = PHOTO_BASE_URL.replace(/\/+$/, "");
-  return `${base}/${safeFile}`;
-}
-
 function friendlyError(code: string) {
   switch (code) {
     case "ALREADY_VOTED":
@@ -88,9 +74,31 @@ function friendlyError(code: string) {
       return "Nominee not found.";
     case "NOMINEE_CATEGORY_MISMATCH":
       return "Nominee does not belong to this category.";
+    case "VOTING_WINDOW_CLOSED":
+      return "Voting is only open during the scheduled window for this event.";
     default:
       return code || "Something went wrong.";
   }
+}
+
+type EventMeta = {
+  start_time?: string | null;
+  end_time?: string | null;
+};
+
+function clientVotingWindowOpen(ev: EventMeta | null): boolean {
+  if (!ev) return true;
+  const s = ev.start_time;
+  const e = ev.end_time;
+  if (s == null || e == null) return true;
+  const sTrim = String(s).trim();
+  const eTrim = String(e).trim();
+  if (!sTrim || !eTrim) return true;
+  const startMs = new Date(sTrim).getTime();
+  const endMs = new Date(eTrim).getTime();
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return true;
+  const now = Date.now();
+  return now >= startMs && now <= endMs;
 }
 
 export default function UsersVotePage() {
@@ -98,6 +106,7 @@ export default function UsersVotePage() {
   const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
   const apiBaseRoot = rawApiBase.replace(/\/+$/, "");
   const apiBase = /\/api$/i.test(apiBaseRoot) ? apiBaseRoot : `${apiBaseRoot}/api`;
+  const apiOrigin = React.useMemo(() => apiBase.replace(/\/api$/i, ""), [apiBase]);
 
   const [user, setUser] = React.useState<ReturnType<typeof readCurrentUser>>(null);
   const [uid, setUid] = React.useState<number | null>(null);
@@ -115,6 +124,8 @@ export default function UsersVotePage() {
   const [votedNomineeId, setVotedNomineeId] = React.useState<number | null>(null);
   const [done, setDone] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
+  const [eventMeta, setEventMeta] = React.useState<EventMeta | null>(null);
+  const [votingWindowOpen, setVotingWindowOpen] = React.useState(true);
 
   React.useEffect(() => {
     setMounted(true);
@@ -133,10 +144,21 @@ export default function UsersVotePage() {
       try {
         const u = readCurrentUser();
         const eventId = typeof u?.eventId === "number" && u.eventId > 0 ? u.eventId : 1;
-        const [catRes, nomRes] = await Promise.all([
+        const [catRes, nomRes, evRes] = await Promise.all([
           fetch(`${apiBase}/categories?eventId=${eventId}`),
           fetch(`${apiBase}/nominees?eventId=${eventId}`),
+          fetch(`${apiBase}/events/${eventId}`),
         ]);
+        const evJson = await evRes.json().catch(() => null);
+        const meta: EventMeta | null =
+          evRes.ok && evJson?.event
+            ? {
+                start_time: evJson.event.start_time ?? null,
+                end_time: evJson.event.end_time ?? null,
+              }
+            : null;
+        setEventMeta(meta);
+        setVotingWindowOpen(clientVotingWindowOpen(meta));
         const catData = await catRes.json().catch(() => null);
         const nomData = await nomRes.json().catch(() => null);
 
@@ -167,6 +189,14 @@ export default function UsersVotePage() {
       }
     })();
   }, [apiBase, router]);
+
+  React.useEffect(() => {
+    if (!eventMeta) return;
+    const tick = () => setVotingWindowOpen(clientVotingWindowOpen(eventMeta));
+    tick();
+    const id = window.setInterval(tick, 30_000);
+    return () => window.clearInterval(id);
+  }, [eventMeta]);
 
   const activeCategory = categories[activeIdx] ?? null;
 
@@ -201,6 +231,10 @@ export default function UsersVotePage() {
 
   async function submitVote() {
     if (!activeCategory || !selectedNomineeId || !user) return;
+    if (!votingWindowOpen) {
+      setError(friendlyError("VOTING_WINDOW_CLOSED"));
+      return;
+    }
     const userId = uid ?? user.id;
     if (!userId) {
       setError("Missing user id. Please login again.");
@@ -293,14 +327,16 @@ export default function UsersVotePage() {
         : "No categories";
 
   const backDisabled = activeIdx === 0 && !done;
-  const nextDisabled = done || !voted;
+  /* Allow moving to the next category without voting (skip / browse first). */
+  const nextDisabled = done;
   const voteDisabled =
     done ||
     voting ||
     voted ||
     !selectedNomineeId ||
     !activeCategory ||
-    nominees.length === 0;
+    nominees.length === 0 ||
+    !votingWindowOpen;
 
   const bottomBarStyle: React.CSSProperties = {
     position: "fixed",
@@ -399,7 +435,6 @@ export default function UsersVotePage() {
     <Shell
       wide
       bare
-      showLogos
       right={
         user ? (
           <button className="linkBtn" type="button" onClick={logout}>
@@ -423,6 +458,22 @@ export default function UsersVotePage() {
 
       {error ? <div className="error">Error: {error}</div> : null}
 
+      {!loadingInit && !votingWindowOpen && eventMeta?.start_time && eventMeta?.end_time ? (
+        <div
+          className="hint"
+          style={{
+            background: "rgba(220, 38, 38, 0.1)",
+            border: "1px solid rgba(220, 38, 38, 0.35)",
+            borderRadius: 12,
+            padding: "12px 14px",
+            marginBottom: 14,
+            color: "var(--text)",
+          }}
+        >
+          Voting is closed right now. It opens only between the scheduled start and end times for this event.
+        </div>
+      ) : null}
+
       {done ? (
         <section
           className="panel"
@@ -431,10 +482,9 @@ export default function UsersVotePage() {
         >
           <div className="panelHeader">
             <div className="panelTitle">All Done</div>
-            <div className="panelMeta">UID: {uid ?? user?.id}</div>
           </div>
           <div className="hint" style={{ marginTop: 12 }}>
-            Thank you for voting in all categories.
+            You’ve gone through every category. You can use Back to return and vote where you haven’t yet.
           </div>
         </section>
       ) : !activeCategory ? (
@@ -455,7 +505,7 @@ export default function UsersVotePage() {
               }}
             >
               {nominees.map((n) => {
-                const src = nomineePhotoUrl(apiBase, n.photo) || FALLBACK_PHOTO;
+                const src = resolveNomineePhotoUrl(apiOrigin, n.photo) || FALLBACK_PHOTO;
                 const isSelected = selectedNomineeId === Number(n.nominee_id);
                 const isVotedFor = voted && Number(n.nominee_id) === votedNomineeId;
                 return (

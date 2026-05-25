@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Shell } from "../../_components/Shell";
 import { setYlfNomineeVotes, subscribeYlf, type YlfNominee, type YlfState } from "@/lib/firebase";
 import { readCurrentUser } from "../../_lib/userSession";
+import { resolveNomineePhotoUrl } from "../../_lib/resolveImageUrl";
 
 const FALLBACK_PHOTO =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23111424'/%3E%3Ctext x='50%25' y='50%25' fill='%23aab3c5' font-size='14' text-anchor='middle' dominant-baseline='middle'%3ENo Photo%3C/text%3E%3C/svg%3E";
@@ -12,21 +13,6 @@ const ERROR_PHOTO =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23111424'/%3E%3Ctext x='50%25' y='50%25' fill='%23aab3c5' font-size='14' text-anchor='middle' dominant-baseline='middle'%3EImage error%3C/text%3E%3C/svg%3E";
 
 const VOTED_STORAGE_KEY = "ylf_voted_categories";
-
-const PHOTO_BASE_URL =
-  process.env.NEXT_PUBLIC_PHOTO_BASE_URL ||
-  "https://mscsuper.blr1.digitaloceanspaces.com/vdimg";
-
-function nomineePhotoUrl(_apiBase: string, photo?: string) {
-  const p = (photo || "").trim();
-  if (!p) return "";
-  if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
-  const normalized = p.replace(/\\/g, "/");
-  const last = normalized.split("/").filter(Boolean).pop() || "";
-  const safeFile = encodeURIComponent(last);
-  const base = PHOTO_BASE_URL.replace(/\/+$/, "");
-  return `${base}/${safeFile}`;
-}
 
 function normalizeNominees(
   nominees: NonNullable<YlfState["category"]>["nominees"],
@@ -44,6 +30,8 @@ function friendlyError(code: string) {
       return "Invalid nominee.";
     case "NOMINEE_NOT_FOUND":
       return "Nominee not found.";
+    case "VOTING_WINDOW_CLOSED":
+      return "Voting is only open during the scheduled window for this event.";
     default:
       return code || "REQUEST_FAILED";
   }
@@ -109,6 +97,7 @@ function CategoryVoteStage({
   onExit: () => void;
 }) {
   const nominees = React.useMemo(() => normalizeNominees(category.nominees), [category.nominees]);
+  const apiOrigin = React.useMemo(() => apiBase.replace(/\/api$/i, ""), [apiBase]);
 
   const [selectedNomineeId, setSelectedNomineeId] = React.useState<number | null>(null);
   const [voting, setVoting] = React.useState(false);
@@ -297,7 +286,7 @@ function CategoryVoteStage({
 
           <div className="nomineeVoteGrid">
             {nominees.map((n) => {
-              const src = nomineePhotoUrl(apiBase, n.photo) || FALLBACK_PHOTO;
+              const src = resolveNomineePhotoUrl(apiOrigin, n.photo) || FALLBACK_PHOTO;
               const selected = selectedNomineeId === Number(n.id);
               return (
                 <label

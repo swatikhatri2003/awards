@@ -82,7 +82,6 @@ export default function OtpPage() {
   return (
     <Shell
       bare
-      showLogos
       title="Verify OTP"
       subtitle={
         pending
@@ -95,7 +94,7 @@ export default function OtpPage() {
         </button>
       }
     >
-      <form onSubmit={submitVerify} className="form">
+      <form onSubmit={submitVerify} className="form formMotion">
         <Field
           label="Enter OTP"
           required

@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Field, Shell } from "../_components/Shell";
 import { writePendingRegistration } from "../_lib/authSession";
@@ -15,12 +15,14 @@ function friendlyError(code: string) {
       return "Please check your details and try again.";
     case "MOBILE_NOT_ALLOWED":
       return "This mobile number is not authorized. Please contact admin.";
+    case "EVENT_NOT_FOUND":
+      return "This event link is invalid or the event no longer exists.";
     default:
       return code;
   }
 }
 
-export default function RegisterPage() {
+function RegisterContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = React.useState(false);
@@ -44,7 +46,6 @@ export default function RegisterPage() {
     name: "",
     email: "",
     mobile: "",
-    membership_number: "",
   });
 
   const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
@@ -65,10 +66,8 @@ export default function RegisterPage() {
         name: form.name.trim(),
         email: form.email.trim(),
         mobile: normalizeMobile(form.mobile.trim()),
+        eventId: String(eventId),
       };
-      const membership = form.membership_number.trim();
-      if (membership) payload.membership_number = membership;
-      payload.eventId = String(eventId);
 
       const res = await fetch(`${apiBase}/auth/register`, {
         method: "POST",
@@ -89,7 +88,6 @@ export default function RegisterPage() {
         name: payload.name,
         email: payload.email,
         mobile: payload.mobile,
-        membership_number: membership || undefined,
         eventId,
       });
       router.push("/otp");
@@ -103,7 +101,6 @@ export default function RegisterPage() {
   return (
     <Shell
       bare
-      showLogos
       title="Register"
       subtitle="Enter your details. We’ll send an OTP to your email, WhatsApp, and SMS for verification."
     >
@@ -135,7 +132,7 @@ export default function RegisterPage() {
         </div>
       ) : null}
 
-      <form onSubmit={submitRegister} className="form">
+      <form onSubmit={submitRegister} className="form formMotion">
         <Field
           label="Full Name"
           required
@@ -162,20 +159,6 @@ export default function RegisterPage() {
           inputMode="tel"
           maxLength={10}
         />
-        <label className="field">
-          <div className="label">Membership Type</div>
-          <select
-            className="input"
-            value={form.membership_number}
-            onChange={(e) =>
-              setForm((s) => ({ ...s, membership_number: e.target.value }))
-            }
-          >
-            <option value="">Select membership type</option>
-            <option value="0">YLF Member</option>
-            <option value="1">YLF Spouse Member</option>
-          </select>
-        </label>
 
         {error ? <div className="error">Error: {error}</div> : null}
 
@@ -184,6 +167,22 @@ export default function RegisterPage() {
         </button>
       </form>
     </Shell>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense
+      fallback={
+        <Shell bare title="Register" subtitle="Loading…">
+          <p className="hint" style={{ marginTop: 8 }}>
+            Loading registration…
+          </p>
+        </Shell>
+      }
+    >
+      <RegisterContent />
+    </Suspense>
   );
 }
 

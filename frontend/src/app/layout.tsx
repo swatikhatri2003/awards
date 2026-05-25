@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
+const inter = Inter({
   variable: "--font-geist-sans",
   subsets: ["latin"],
 });
@@ -13,15 +13,16 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "YLF Member Awards",
-  description: "Registration for YLF Member Awards nominations",
+  title: "Award voting — events, nominees & secure ballots",
+  description:
+    "Create events and award categories, add nominees, and run public or private voting with verified registration.",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#070a12",
+  themeColor: "#dbeafe",
 };
 
 export default function RootLayout({
@@ -30,8 +31,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body className={geistSans.className}>{children}</body>
+    <html lang="en" className={`${inter.variable} ${geistMono.variable}`}>
+      <body className={inter.className}>{children}</body>
     </html>
   );
 }

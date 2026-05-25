@@ -2,36 +2,6 @@
 
 import React from "react";
 
-// Must match `basePath` in next.config.ts. In dev, basePath is unset — use "" so /public maps to /logos/...
-// Override anytime via NEXT_PUBLIC_BASE_PATH.
-const BASE_PATH =
-  process.env.NEXT_PUBLIC_BASE_PATH?.replace(/\/+$/, "") ??
-  (process.env.NODE_ENV === "production" ? "/awards_f" : "");
-
-export function LogoHeader() {
-  // Source PNGs have a baked-in black background. `mix-blend-mode: screen`
-  // makes black pixels effectively transparent against the dark page bg.
-  return (
-    <div className="logoStrip" role="presentation">
-      <img
-        className="logoStripImg"
-        src={`${BASE_PATH}/logos/icc100.png`}
-        alt="Indian Chamber of Commerce - Centenary"
-      />
-      <img
-        className="logoStripImg logoStripImg--mid"
-        src={`${BASE_PATH}/logos/ylf.png`}
-        alt="Young Leaders Forum"
-      />
-      <img
-        className="logoStripImg"
-        src={`${BASE_PATH}/logos/elevate.png`}
-        alt="Elevate"
-      />
-    </div>
-  );
-}
-
 export function Shell(props: {
   title?: string;
   subtitle?: string;
@@ -39,22 +9,19 @@ export function Shell(props: {
   right?: React.ReactNode;
   wide?: boolean;
   bare?: boolean;
-  showLogos?: boolean;
 }) {
   const containerClass = props.wide ? "container containerWide" : "container";
   const cardClass = props.bare
     ? "cardBare"
     : props.wide
-      ? "card cardWide"
-      : "card";
+      ? "card cardWide cardMotion"
+      : "card cardMotion";
   const hasHeaderText = Boolean(props.title || props.subtitle);
   const hasHeader = hasHeaderText || Boolean(props.right);
 
   return (
     <main className={containerClass}>
       <section className={cardClass}>
-        {props.showLogos ? <LogoHeader /> : null}
-
         {hasHeader ? (
           <header
             className={
@@ -94,10 +61,12 @@ export function Field(props: {
   required?: boolean;
   type?: string;
   inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+  className?: string;
 }) {
   const id = React.useId();
+  const fieldClass = ["field", props.className].filter(Boolean).join(" ");
   return (
-    <label className="field" htmlFor={id}>
+    <label className={fieldClass} htmlFor={id}>
       <div className="label">
         {props.label} {props.required ? <span className="req">*</span> : null}
       </div>

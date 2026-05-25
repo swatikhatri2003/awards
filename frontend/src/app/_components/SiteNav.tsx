@@ -1,0 +1,58 @@
+"use client";
+
+import React from "react";
+import Link from "next/link";
+import { withBasePath } from "../_lib/basePath";
+
+const links = [
+  { href: withBasePath("/#why"), label: "Why us" },
+  { href: withBasePath("/#features"), label: "Features" },
+  { href: withBasePath("/events"), label: "Vote" },
+] as const;
+
+export function SiteNav() {
+  const [open, setOpen] = React.useState(false);
+
+  return (
+    <nav className="hxNav" aria-label="Primary">
+      <div className={["hxNavBar", open ? "hxNavBar--open" : ""].filter(Boolean).join(" ")}>
+        <Link href={withBasePath("/")} className="hxBrand" onClick={() => setOpen(false)}>
+          <span className="hxBrandMark" aria-hidden />
+          <span className="hxBrandText">Awards</span>
+        </Link>
+
+        <button
+          type="button"
+          className="hxNavMenuBtn"
+          aria-expanded={open}
+          aria-controls="hx-nav-panel"
+          id="hx-nav-toggle"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="visuallyHidden">{open ? "Close menu" : "Open menu"}</span>
+          <span className="hxNavMenuIcon" aria-hidden />
+        </button>
+
+        <div id="hx-nav-panel" className="hxNavCollapsible">
+          <ul className="hxNavLinks">
+            {links.map((item) => (
+              <li key={item.href}>
+                <Link className="hxNavLink" href={item.href} onClick={() => setOpen(false)}>
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="hxNavCta">
+            <Link className="hxGhost" href={withBasePath("/admin")} onClick={() => setOpen(false)}>
+              Admin
+            </Link>
+            <Link className="hxPillBtn" href={withBasePath("/admin")} onClick={() => setOpen(false)}>
+              Run an event
+            </Link>
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
+}
