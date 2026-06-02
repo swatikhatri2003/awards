@@ -10,6 +10,7 @@ import {
   writeAdminSession,
 } from "../_lib/adminAuthSession";
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
+import { resolveEventBannerUrl } from "../_lib/resolveImageUrl";
 
 type ApiEvent = {
   event_id: number;
@@ -28,6 +29,42 @@ function toDatetimeLocalValue(iso: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatWhen(iso: string | null | undefined): string {
+  if (iso == null || String(iso).trim() === "") return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function votingStatus(ev: ApiEvent): "open" | "upcoming" | "ended" | "always" {
+  const s = ev.start_time;
+  const e = ev.end_time;
+  if (s == null || e == null || !String(s).trim() || !String(e).trim()) return "always";
+  const startMs = new Date(String(s)).getTime();
+  const endMs = new Date(String(e)).getTime();
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return "always";
+  const now = Date.now();
+  if (now < startMs) return "upcoming";
+  if (now > endMs) return "ended";
+  return "open";
+}
+
+type DashboardScreen = "list" | "create" | "detail" | "edit";
+
+function parseDashboardFromSearchParams(searchParams: URLSearchParams): {
+  screen: DashboardScreen;
+  eventId: number | null;
+} {
+  const screenRaw = searchParams.get("screen");
+  const eidRaw = searchParams.get("eventId");
+  const eventId = eidRaw ? Number(eidRaw) : 0;
+  const validId = Number.isFinite(eventId) && eventId > 0 ? Math.floor(eventId) : null;
+  if (screenRaw === "create") return { screen: "create", eventId: null };
+  if (screenRaw === "edit" && validId) return { screen: "edit", eventId: validId };
+  if (validId) return { screen: "detail", eventId: validId };
+  return { screen: "list", eventId: null };
 }
 
 /* ─── Styles ──────────────────────────────────────────────────────── */
@@ -392,6 +429,136 @@ const css = `
   }
   .event-card:hover { border-color: var(--border-hover); }
 
+  .event-card-clickable {
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    font: inherit;
+    color: inherit;
+    display: block;
+  }
+  .event-card-clickable:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .event-card-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+  }
+  .event-card-thumb {
+    width: 56px;
+    height: 56px;
+    border-radius: var(--radius);
+    object-fit: cover;
+    flex-shrink: 0;
+    background: var(--surface3);
+    border: 1px solid var(--border);
+  }
+  .event-card-thumb-ph {
+    width: 56px;
+    height: 56px;
+    border-radius: var(--radius);
+    flex-shrink: 0;
+    background: var(--accent-dim);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .event-card-main { flex: 1; min-width: 0; }
+  .event-card-chevron {
+    flex-shrink: 0;
+    color: var(--text-faint);
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  .back-row { margin-bottom: 1.25rem; }
+  .back-link {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 14px;
+    padding: 0;
+  }
+  .back-link:hover { text-decoration: underline; }
+
+  .event-detail-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    margin-bottom: 2rem;
+  }
+  .event-detail-banner {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    display: block;
+    background: var(--surface3);
+  }
+  .event-detail-banner-ph {
+    width: 100%;
+    height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-dim);
+  }
+  .event-detail-body { padding: 1.5rem; }
+  .event-detail-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .event-detail-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 10px;
+    overflow-wrap: anywhere;
+  }
+  .event-detail-meta {
+    display: grid;
+    gap: 12px;
+    margin: 1.25rem 0;
+    font-size: 13px;
+  }
+  .event-detail-meta dt {
+    color: var(--text-faint);
+    font-weight: 500;
+    margin-bottom: 2px;
+  }
+  .event-detail-meta dd { color: var(--text); margin: 0; }
+  .event-detail-note {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    margin-bottom: 1.25rem;
+  }
+  .event-detail-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+  }
+  .badge-vote-open { background: var(--success-dim); color: var(--success); border: 1px solid rgba(34,211,160,0.2); }
+  .badge-vote-upcoming { background: rgba(217, 119, 6, 0.12); color: var(--warning); border: 1px solid rgba(217, 119, 6, 0.2); }
+  .badge-vote-ended { background: var(--surface3); color: var(--text-muted); border: 1px solid var(--border); }
+  .badge-vote-always { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(37, 99, 235, 0.2); }
+
   .event-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 6px; min-width: 0; }
   .event-title { font-size: 15px; font-weight: 600; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
   .event-badge {
@@ -477,7 +644,9 @@ function AdminContent() {
   const [createEndLocal, setCreateEndLocal] = React.useState("");
   const [uploading, setUploading] = React.useState(false);
   const [editingEventId, setEditingEventId] = React.useState<number | null>(null);
-  const createPanelRef = React.useRef<HTMLDivElement>(null);
+  const [dashboardScreen, setDashboardScreen] = React.useState<DashboardScreen>("list");
+  const [selectedEventId, setSelectedEventId] = React.useState<number | null>(null);
+  const [copyDone, setCopyDone] = React.useState(false);
 
   const loadEvents = React.useCallback(async () => {
     const token = readAdminToken();
@@ -497,6 +666,51 @@ function AdminContent() {
       else { clearAdminSession(); setView("auth"); }
     })();
   }, [apiBase, loadEvents]);
+
+  const navigateDashboard = React.useCallback(
+    (screen: DashboardScreen, eventId?: number | null) => {
+      setDashboardScreen(screen);
+      setSelectedEventId(eventId ?? null);
+      setCopyDone(false);
+      setError(null);
+      const params = new URLSearchParams();
+      if (screen === "create") params.set("screen", "create");
+      else if (screen === "edit" && eventId) {
+        params.set("screen", "edit");
+        params.set("eventId", String(eventId));
+      } else if (screen === "detail" && eventId) {
+        params.set("eventId", String(eventId));
+      }
+      const q = params.toString();
+      router.replace(withBasePath(`/admin${q ? `?${q}` : ""}`), { scroll: false });
+    },
+    [router],
+  );
+
+  React.useEffect(() => {
+    if (view !== "dashboard") return;
+    const parsed = parseDashboardFromSearchParams(searchParams);
+    setDashboardScreen(parsed.screen);
+    setSelectedEventId(parsed.eventId);
+  }, [view, searchParams]);
+
+  React.useEffect(() => {
+    if (view !== "dashboard" || dashboardScreen !== "edit" || selectedEventId == null) return;
+    const ev = events.find(e => e.event_id === selectedEventId);
+    if (!ev || editingEventId === ev.event_id) return;
+    setEditingEventId(ev.event_id);
+    setCreateTitle((ev.title || "").trim());
+    setCreateDescription((ev.description || "").trim());
+    const img = (ev.image || "").trim();
+    setCreateImageName(img);
+    setEventBannerPreviewUrl(prev => {
+      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return img ? resolveEventBannerUrl(apiOrigin, img) : null;
+    });
+    setCreateIsPrivate(ev.is_private === true || ev.is_private === 1);
+    setCreateStartLocal(toDatetimeLocalValue(ev.start_time));
+    setCreateEndLocal(toDatetimeLocalValue(ev.end_time));
+  }, [view, dashboardScreen, selectedEventId, events, editingEventId, apiOrigin]);
 
   const revokeEventBannerPreview = React.useCallback(() => {
     setEventBannerPreviewUrl(prev => { if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev); return null; });
@@ -679,25 +893,46 @@ function AdminContent() {
     finally { setLoading(false); }
   }
 
+  function resetEventForm() {
+    setEditingEventId(null);
+    setCreateTitle("");
+    setCreateDescription("");
+    setCreateImageName("");
+    revokeEventBannerPreview();
+    setCreateIsPrivate(false);
+    setCreateStartLocal("");
+    setCreateEndLocal("");
+  }
+
   function beginEditEvent(ev: ApiEvent) {
     setEditingEventId(ev.event_id);
     setCreateTitle((ev.title || "").trim());
     setCreateDescription((ev.description || "").trim());
     const img = (ev.image || "").trim();
     setCreateImageName(img);
-    setEventBannerPreviewUrl(prev => { if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev); return img ? `${apiOrigin}/uploads/event/${encodeURIComponent(img)}` : null; });
+    setEventBannerPreviewUrl(prev => {
+      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return img ? resolveEventBannerUrl(apiOrigin, img) : null;
+    });
     setCreateIsPrivate(ev.is_private === true || ev.is_private === 1);
     setCreateStartLocal(toDatetimeLocalValue(ev.start_time));
     setCreateEndLocal(toDatetimeLocalValue(ev.end_time));
     setError(null);
-    if (typeof window !== "undefined") {
-      createPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
+    navigateDashboard("edit", ev.event_id);
   }
 
   function cancelEditEvent() {
-    setEditingEventId(null); setCreateTitle(""); setCreateDescription(""); setCreateImageName("");
-    revokeEventBannerPreview(); setCreateIsPrivate(false); setCreateStartLocal(""); setCreateEndLocal(""); setError(null);
+    const returnId = editingEventId;
+    resetEventForm();
+    setError(null);
+    if (returnId != null) navigateDashboard("detail", returnId);
+    else navigateDashboard("list");
+  }
+
+  function openCreateEvent() {
+    resetEventForm();
+    setError(null);
+    navigateDashboard("create");
   }
 
   async function uploadEventPhoto(file: File) {
@@ -736,10 +971,13 @@ function AdminContent() {
       });
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.message || data?.error || (isEdit ? "UPDATE_EVENT_FAILED" : "CREATE_EVENT_FAILED"));
-      if (isEdit) { cancelEditEvent(); } else {
-        setCreateTitle(""); setCreateDescription(""); revokeEventBannerPreview(); setCreateImageName(""); setCreateIsPrivate(false); setCreateStartLocal(""); setCreateEndLocal("");
-      }
+      const savedId = isEdit
+        ? editingEventId
+        : Number(data?.event?.event_id ?? 0) || null;
+      resetEventForm();
       await loadEvents();
+      if (savedId) navigateDashboard("detail", savedId);
+      else navigateDashboard("list");
     } catch (err) { setError(err instanceof Error ? err.message : "SAVE_EVENT_FAILED"); }
     finally { setLoading(false); }
   }
@@ -754,10 +992,11 @@ function AdminContent() {
   /* ─── Dashboard view ─── */
   if (view === "dashboard") {
     const token = readAdminToken();
-    const hasEvents = events.length > 0;
+    const selectedEvent =
+      selectedEventId != null ? events.find(e => e.event_id === selectedEventId) ?? null : null;
 
-    const createPanel = (
-      <div className="panel" ref={createPanelRef}>
+    const eventFormPanel = (
+      <div className="panel">
         <div className="panel-title">
           {editingEventId != null ? "Edit event" : "New event"}
           {editingEventId != null && <span className="panel-title-pill">Editing</span>}
@@ -825,48 +1064,189 @@ function AdminContent() {
             <button type="submit" className="btn" disabled={loading || uploading}>
               {loading ? "Saving…" : editingEventId != null ? "Save changes" : "Create event"}
             </button>
-            {editingEventId != null && (
-              <button type="button" className="btn btn-ghost" disabled={loading || uploading} onClick={cancelEditEvent}>Cancel</button>
-            )}
+            <button type="button" className="btn btn-ghost" disabled={loading || uploading} onClick={cancelEditEvent}>
+              Cancel
+            </button>
           </div>
         </form>
       </div>
     );
 
-    const eventsSection = (
+    const eventsListSection = (
       <>
         <div className="section-head">
           <span className="section-title">Your events</span>
-          <span style={{ fontSize: 13, color: "var(--text-faint)" }}>{events.length} total</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 13, color: "var(--text-faint)" }}>{events.length} total</span>
+            <button type="button" className="btn" onClick={openCreateEvent}>Add event</button>
+          </div>
         </div>
 
         {events.length === 0 ? (
-          <p className="hint">No events yet — create one {hasEvents ? "below" : "above"}.</p>
+          <p className="hint">No events yet — use Add event to create your first one.</p>
         ) : (
           <div className="event-list">
-            {events.map(ev => (
-              <div key={ev.event_id} className="event-card">
-                <div className="event-header">
-                  <span className="event-title">{ev.title || "Untitled"}</span>
-                  <span className={`event-badge ${ev.is_private === true || ev.is_private === 1 ? "badge-private" : "badge-public"}`}>
-                    {ev.is_private === true || ev.is_private === 1 ? "Private" : "Public"}
-                  </span>
-                </div>
-                {ev.description && <p className="event-desc">{ev.description}</p>}
-                <div className="event-actions">
-                  <button type="button" className="btn btn-ghost" onClick={() => beginEditEvent(ev)}>Edit</button>
-                  <a className="btn btn-ghost" href={withBasePath(`/awards_f/actions?eventId=${ev.event_id}`)} style={{ textDecoration: "none" }}>Manage Categories & Nominees</a>
-                  <a className="btn btn-ghost" href={withBasePath(`/awards_f/screen?eventId=${ev.event_id}`)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>Open LED</a>
-                  <button type="button" className="btn btn-ghost" onClick={() => void navigator.clipboard.writeText(fullRegisterUrl(ev.event_id))}>
-                    Copy register link
-                  </button>
-                </div>
-              </div>
-            ))}
+            {events.map(ev => {
+              const title = (ev.title || "").trim() || "Untitled";
+              const desc = (ev.description || "").trim();
+              const imgSrc = resolveEventBannerUrl(apiOrigin, ev.image);
+              return (
+                <button
+                  key={ev.event_id}
+                  type="button"
+                  className="event-card event-card-clickable"
+                  onClick={() => navigateDashboard("detail", ev.event_id)}
+                >
+                  <div className="event-card-row">
+                    {imgSrc ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={imgSrc} alt="" className="event-card-thumb" />
+                    ) : (
+                      <div className="event-card-thumb-ph" aria-hidden>{title.slice(0, 2).toUpperCase()}</div>
+                    )}
+                    <div className="event-card-main">
+                      <div className="event-header" style={{ marginBottom: desc ? 4 : 0 }}>
+                        <span className="event-title">{title}</span>
+                        <span className={`event-badge ${ev.is_private === true || ev.is_private === 1 ? "badge-private" : "badge-public"}`}>
+                          {ev.is_private === true || ev.is_private === 1 ? "Private" : "Public"}
+                        </span>
+                      </div>
+                      {desc ? <p className="event-desc" style={{ marginBottom: 0 }}>{desc}</p> : null}
+                    </div>
+                    <span className="event-card-chevron" aria-hidden>›</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </>
     );
+
+    const eventDetailSection = selectedEvent ? (() => {
+      const ev = selectedEvent;
+      const title = (ev.title || "").trim() || "Untitled";
+      const desc = (ev.description || "").trim();
+      const imgSrc = resolveEventBannerUrl(apiOrigin, ev.image);
+      const isPrivate = ev.is_private === true || ev.is_private === 1;
+      const status = votingStatus(ev);
+      const startLabel = formatWhen(ev.start_time);
+      const endLabel = formatWhen(ev.end_time);
+      const hasWindow = Boolean(startLabel && endLabel);
+      const voteBadgeClass =
+        status === "open" ? "badge-vote-open"
+          : status === "upcoming" ? "badge-vote-upcoming"
+            : status === "ended" ? "badge-vote-ended"
+              : "badge-vote-always";
+      const voteLabel =
+        status === "open" ? "Voting open"
+          : status === "upcoming" ? "Voting soon"
+            : status === "ended" ? "Voting ended"
+              : "Open voting";
+
+      return (
+        <article className="event-detail-panel">
+          {imgSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={imgSrc} alt="" className="event-detail-banner" />
+          ) : (
+            <div className="event-detail-banner-ph" aria-hidden>{title.slice(0, 2).toUpperCase()}</div>
+          )}
+          <div className="event-detail-body">
+            <div className="event-detail-badges">
+              <span className={`event-badge ${isPrivate ? "badge-private" : "badge-public"}`}>
+                {isPrivate ? "Private" : "Public"}
+              </span>
+              <span className={`event-badge ${voteBadgeClass}`}>{voteLabel}</span>
+            </div>
+            <h1 className="event-detail-title">{title}</h1>
+            {desc ? <p className="event-desc">{desc}</p> : null}
+            {hasWindow ? (
+              <dl className="event-detail-meta">
+                <div>
+                  <dt>Voting starts</dt>
+                  <dd>{startLabel}</dd>
+                </div>
+                <div>
+                  <dt>Voting ends</dt>
+                  <dd>{endLabel}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="event-detail-note">Voting window not set — votes count anytime.</p>
+            )}
+            {isPrivate ? (
+              <p className="event-detail-note">Invite-only event. Share the register link below with attendees.</p>
+            ) : null}
+            <div className="event-detail-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => beginEditEvent(ev)}>Edit event</button>
+              <a className="btn btn-ghost" href={withBasePath(`/awards_f/actions?eventId=${ev.event_id}`)} style={{ textDecoration: "none" }}>
+                Categories & nominees
+              </a>
+              <a className="btn btn-ghost" href={withBasePath(`/awards_f/screen?eventId=${ev.event_id}`)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+                Open LED screen
+              </a>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  void navigator.clipboard.writeText(fullRegisterUrl(ev.event_id));
+                  setCopyDone(true);
+                  window.setTimeout(() => setCopyDone(false), 2000);
+                }}
+              >
+                {copyDone ? "Link copied" : "Copy register link"}
+              </button>
+              <a className="btn btn-ghost" href={withBasePath(`/events/${ev.event_id}`)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+                Public event page
+              </a>
+            </div>
+          </div>
+        </article>
+      );
+    })() : (
+      <div className="panel">
+        <p className="hint" style={{ padding: "1rem 0" }}>Event not found.</p>
+        <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("list")}>Back to your events</button>
+      </div>
+    );
+
+    let dashboardBody: React.ReactNode;
+    if (dashboardScreen === "create") {
+      dashboardBody = (
+        <>
+          <div className="back-row">
+            <button type="button" className="back-link" onClick={() => navigateDashboard("list")}>← Your events</button>
+          </div>
+          {eventFormPanel}
+        </>
+      );
+    } else if (dashboardScreen === "edit") {
+      dashboardBody = (
+        <>
+          <div className="back-row">
+            <button type="button" className="back-link" onClick={() => cancelEditEvent()}>← Event details</button>
+          </div>
+          {selectedEvent ? eventFormPanel : (
+            <div className="panel">
+              <p className="hint" style={{ padding: "1rem 0" }}>Event not found.</p>
+              <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("list")}>Back to your events</button>
+            </div>
+          )}
+        </>
+      );
+    } else if (dashboardScreen === "detail") {
+      dashboardBody = (
+        <>
+          <div className="back-row">
+            <button type="button" className="back-link" onClick={() => navigateDashboard("list")}>← Your events</button>
+          </div>
+          {eventDetailSection}
+        </>
+      );
+    } else {
+      dashboardBody = eventsListSection;
+    }
 
     return (
       <div className="page">
@@ -882,17 +1262,7 @@ function AdminContent() {
 
           {error && <div className="error-box">{error}</div>}
 
-          {hasEvents ? (
-            <>
-              {eventsSection}
-              {createPanel}
-            </>
-          ) : (
-            <>
-              {createPanel}
-              {eventsSection}
-            </>
-          )}
+          {dashboardBody}
 
           {!token && <p className="error-box" style={{ marginTop: 16 }}>Session missing — please log in again.</p>}
         </div>
