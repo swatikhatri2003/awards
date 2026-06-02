@@ -11,6 +11,7 @@ import {
 } from "../_lib/adminAuthSession";
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 import { resolveEventBannerUrl } from "../_lib/resolveImageUrl";
+import { EventCategoriesNomineesPanel } from "./_components/EventCategoriesNomineesPanel";
 
 type ApiEvent = {
   event_id: number;
@@ -51,18 +52,21 @@ function votingStatus(ev: ApiEvent): "open" | "upcoming" | "ended" | "always" {
   return "open";
 }
 
-type DashboardScreen = "list" | "create" | "detail" | "edit";
+type DashboardScreen = "list" | "create" | "detail" | "edit" | "categories" | "nominees";
 
 function parseDashboardFromSearchParams(searchParams: URLSearchParams): {
   screen: DashboardScreen;
   eventId: number | null;
 } {
   const screenRaw = searchParams.get("screen");
+  const panelRaw = searchParams.get("panel");
   const eidRaw = searchParams.get("eventId");
   const eventId = eidRaw ? Number(eidRaw) : 0;
   const validId = Number.isFinite(eventId) && eventId > 0 ? Math.floor(eventId) : null;
   if (screenRaw === "create") return { screen: "create", eventId: null };
   if (screenRaw === "edit" && validId) return { screen: "edit", eventId: validId };
+  if (validId && panelRaw === "categories") return { screen: "categories", eventId: validId };
+  if (validId && panelRaw === "nominees") return { screen: "nominees", eventId: validId };
   if (validId) return { screen: "detail", eventId: validId };
   return { screen: "list", eventId: null };
 }
@@ -623,7 +627,7 @@ function AdminContent() {
 
   const [view, setView] = React.useState<
     "boot" | "auth" | "forgot" | "reset" | "register" | "register-verify" | "dashboard"
-  >(() => (readAdminToken() ? "boot" : "auth"));
+  >("boot");
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [info, setInfo] = React.useState<string | null>(null);
@@ -678,6 +682,9 @@ function AdminContent() {
       else if (screen === "edit" && eventId) {
         params.set("screen", "edit");
         params.set("eventId", String(eventId));
+      } else if ((screen === "categories" || screen === "nominees") && eventId) {
+        params.set("eventId", String(eventId));
+        params.set("panel", screen);
       } else if (screen === "detail" && eventId) {
         params.set("eventId", String(eventId));
       }
@@ -1180,8 +1187,14 @@ function AdminContent() {
             ) : null}
             <div className="event-detail-actions">
               <button type="button" className="btn btn-ghost" onClick={() => beginEditEvent(ev)}>Edit event</button>
+              <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("categories", ev.event_id)}>
+                Categories
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("nominees", ev.event_id)}>
+                Nominees
+              </button>
               <a className="btn btn-ghost" href={withBasePath(`/awards_f/actions?eventId=${ev.event_id}`)} style={{ textDecoration: "none" }}>
-                Categories & nominees
+                LED controls
               </a>
               <a className="btn btn-ghost" href={withBasePath(`/awards_f/screen?eventId=${ev.event_id}`)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
                 Open LED screen
@@ -1243,6 +1256,26 @@ function AdminContent() {
           </div>
           {eventDetailSection}
         </>
+      );
+    } else if ((dashboardScreen === "categories" || dashboardScreen === "nominees") && selectedEventId != null) {
+      const manageEvent = events.find(e => e.event_id === selectedEventId);
+      const manageToken = readAdminToken();
+      dashboardBody = manageEvent && manageToken ? (
+        <EventCategoriesNomineesPanel
+          mode={dashboardScreen}
+          eventId={selectedEventId}
+          eventTitle={(manageEvent.title || "").trim() || "Untitled"}
+          apiBase={apiBase}
+          apiOrigin={apiOrigin}
+          token={manageToken}
+          onBack={() => navigateDashboard("detail", selectedEventId)}
+          onGoCategories={() => navigateDashboard("categories", selectedEventId)}
+        />
+      ) : (
+        <div className="panel">
+          <p className="hint" style={{ padding: "1rem 0" }}>Event not found.</p>
+          <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("list")}>Back to your events</button>
+        </div>
       );
     } else {
       dashboardBody = eventsListSection;
