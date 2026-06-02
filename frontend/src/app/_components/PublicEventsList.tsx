@@ -16,11 +16,11 @@ export function PublicEventsList(props: { events: HomePublicEvent[]; apiOrigin: 
         const title = (ev.title || "").trim() || "Untitled event";
         const desc = (ev.description || "").trim();
         const imgSrc = resolveEventBannerUrl(apiOrigin, ev.image);
-        const registerHref = withBasePath(`/register?eventId=${ev.event_id}`);
+        const detailHref = withBasePath(`/events/${ev.event_id}`);
         return (
           <li key={ev.event_id} className="hxEventRiverItem">
             <Reveal className="hxEventWrap" delay={i * 70}>
-              <Link href={registerHref} className="hxEventCard">
+              <Link href={detailHref} className="hxEventCard">
                 <div className="hxEventVisual">
                   {imgSrc ? (
                     <img src={imgSrc} alt="" className="hxEventImg" />
@@ -34,7 +34,7 @@ export function PublicEventsList(props: { events: HomePublicEvent[]; apiOrigin: 
                 <div className="hxEventCopy">
                   <h3 className="hxEventTitle">{title}</h3>
                   {desc ? <p className="hxEventDesc">{desc}</p> : null}
-                  <span className="hxEventGo">Register & vote</span>
+                  <span className="hxEventGo">View event</span>
                 </div>
               </Link>
             </Reveal>

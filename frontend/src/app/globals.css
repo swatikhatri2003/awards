@@ -2055,3 +2055,175 @@ input[type="file"].input {
     font-size: 15px;
   }
 }
+
+/* ── Event detail page ── */
+.hxEventDetailBack {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.hxEventDetailBack a {
+  color: var(--accent2);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.hxEventDetailBack a:hover {
+  text-decoration: underline;
+}
+
+.hxEventDetailSection {
+  max-width: 720px;
+}
+
+.hxEventDetailEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.hxEventDetail {
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: var(--hx-radius-lg, 24px);
+  overflow: hidden;
+  box-shadow: 0 12px 48px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.hxEventDetailVisual {
+  aspect-ratio: 21 / 9;
+  min-height: 160px;
+  max-height: 320px;
+  background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%);
+  overflow: hidden;
+}
+
+.hxEventDetailImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.hxEventDetailPh {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(48px, 10vw, 72px);
+  font-weight: 800;
+  color: rgba(37, 99, 235, 0.35);
+  letter-spacing: -0.04em;
+}
+
+.hxEventDetailBody {
+  padding: clamp(24px, 4vw, 36px);
+}
+
+.hxEventDetailBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.hxEventDetailBadge {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.hxEventDetailBadge--public {
+  background: rgba(5, 150, 105, 0.12);
+  color: #059669;
+}
+
+.hxEventDetailBadge--private {
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+}
+
+.hxEventDetailBadge--open {
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563eb;
+}
+
+.hxEventDetailBadge--upcoming {
+  background: rgba(217, 119, 6, 0.12);
+  color: #d97706;
+}
+
+.hxEventDetailBadge--ended {
+  background: rgba(100, 116, 139, 0.15);
+  color: #64748b;
+}
+
+.hxEventDetailBadge--always {
+  background: rgba(100, 116, 139, 0.12);
+  color: #64748b;
+}
+
+.hxEventDetailTitle {
+  font-size: clamp(28px, 4vw, 38px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0 0 16px;
+  line-height: 1.15;
+}
+
+.hxEventDetailDesc {
+  margin: 0 0 20px;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.hxEventDetailMeta {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 20px;
+  padding: 16px 18px;
+  background: rgba(15, 23, 42, 0.03);
+  border-radius: 14px;
+}
+
+.hxEventDetailMeta div {
+  display: grid;
+  gap: 4px;
+}
+
+.hxEventDetailMeta dt {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.hxEventDetailMeta dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.hxEventDetailNote {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.hxEventDetailActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}

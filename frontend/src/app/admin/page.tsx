@@ -455,8 +455,8 @@ function AdminContent() {
   const presetEventId = searchParams.get("eventId") || "";
 
   const [view, setView] = React.useState<
-    "auth" | "forgot" | "reset" | "register" | "register-verify" | "dashboard"
-  >("auth");
+    "boot" | "auth" | "forgot" | "reset" | "register" | "register-verify" | "dashboard"
+  >(() => (readAdminToken() ? "boot" : "auth"));
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [info, setInfo] = React.useState<string | null>(null);
@@ -490,10 +490,11 @@ function AdminContent() {
 
   React.useEffect(() => {
     const token = readAdminToken();
-    if (!token) return;
+    if (!token) { setView("auth"); return; }
     void (async () => {
       const r = await fetch(`${apiBase}/admin/me`, { headers: { ...adminAuthHeader(token) } });
       if (r.ok) { setView("dashboard"); await loadEvents(); }
+      else { clearAdminSession(); setView("auth"); }
     })();
   }, [apiBase, loadEvents]);
 
@@ -1089,6 +1090,18 @@ function AdminContent() {
               <button type="submit" className="btn btn-full" disabled={loading}>{loading ? "Saving…" : "Reset & sign in"}</button>
             </form>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ─── Boot (session check) ─── */
+  if (view === "boot") {
+    return (
+      <div className="page">
+        <style>{css}</style>
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontFamily: "var(--font)", fontSize: 14 }}>
+          Checking session…
         </div>
       </div>
     );
