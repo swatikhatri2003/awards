@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1:3306
--- Generation Time: Apr 30, 2026 at 01:23 PM
+-- Generation Time: May 01, 2026 at 10:06 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -643,7 +643,8 @@ INSERT INTO `category` (`category_id`, `name`, `winner_nominee_id`, `event_id`) 
 (8, 'Power Networker Award', NULL, NULL),
 (9, 'Most Charismatic Award', NULL, NULL),
 (11, 'Grace Behind the Glory Award (Spouse)', NULL, NULL),
-(12, 'YLF Power Couple Award', NULL, NULL);
+(12, 'YLF Power Couple Award', NULL, NULL),
+(13, 'abcd', NULL, 1);
 
 -- --------------------------------------------------------
 
@@ -655,7 +656,26 @@ CREATE TABLE `events` (
   `event_id` int(11) NOT NULL,
   `title` varchar(200) DEFAULT NULL,
   `description` varchar(500) DEFAULT NULL,
-  `image` varchar(150) DEFAULT NULL
+  `image` varchar(150) DEFAULT NULL,
+  `admin_id` int(11) NOT NULL,
+  `is_private` tinyint(1) NOT NULL DEFAULT 0,
+  `start_time` datetime DEFAULT NULL,
+  `end_time` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `event_admin`
+--
+
+CREATE TABLE `event_admin` (
+  `email` varchar(75) NOT NULL,
+  `password` varchar(255) NOT NULL,
+  `admin_id` int(11) NOT NULL,
+  `otp` varchar(6) DEFAULT NULL,
+  `otp_expires_at` datetime DEFAULT NULL,
+  `email_verified` tinyint(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -734,7 +754,8 @@ INSERT INTO `nominee` (`nominee_id`, `photo`, `description`, `name`, `category_i
 (63, 'VIDHI & AAYUSH GOEL.png', 'A 10-year ‘opposites attract’ partnership in real time.\r\n\r\n10 years together — arranged marriage that grew into a true team partnership\r\n\r\nWife participated in the YLF cricket tournament and contributed strongly to her team\r\n\r\nConstant pillar of support for each other and family during anxious or challenging times\r\n\r\nBuilt shared rituals — workouts, annual getaways\r\n\r\nAligned on what matters most despite different personalities', 'Vidhi & Aayush Goel', 12, 42),
 (64, 'NAINA & ANKIT PATNI.png', 'Power couple balancing business, family, fitness, and YLF.\r\n\r\nNaina just finished Hyrox Pro at Bangalore\r\n\r\nAnkit is a regular at all YLF sports\r\n\r\nActive YLF participation — committee member for 3 years\r\n\r\nRegular team owner with the SKP Eagles franchise\r\n\r\nTwo-time cricket Silver Cup winners; defending champions of the inaugural rackets tournament', 'Naina & Ankit Patni', 12, 88),
 (65, 'ADITYA & DEEPIKA JAIN.png', 'Tea entrepreneurs covering different geographies through complementary expertise.\r\n\r\nStarted their tea business together 8 years back — Aditya in sales/development, Deepika in operations/admin\r\n\r\nCater to different geographies leveraging individual expertise and geopolitical knowledge\r\n\r\nDifferent personalities — strong-headed clarity (Deepika) and street-smart diplomacy (Aditya)\r\n\r\nBuilding synergy domestically as well, encapsulating brand and vision\r\n\r\nTwo characters, one unit — complementing each other socially and professionally', 'Deepika & Aditya Jain', 12, 14),
-(66, 'ROMY & KHUSHBOO PATNI.png', 'Harmony in lifestyle and values across travel, food, sports, and parenting.\r\n\r\nStrong bond built on respect, love, and understanding\r\n\r\nValue family traditions and harmony with elders\r\n\r\nSupport each other’s individual space — independence with emotional presence\r\n\r\nCommon interests: travel, food, sports, partying — naturally aligned\r\n\r\nBalance of love, friendship, and parenting', 'Khusboo & Romy Patni', 12, 51);
+(66, 'ROMY & KHUSHBOO PATNI.png', 'Harmony in lifestyle and values across travel, food, sports, and parenting.\r\n\r\nStrong bond built on respect, love, and understanding\r\n\r\nValue family traditions and harmony with elders\r\n\r\nSupport each other’s individual space — independence with emotional presence\r\n\r\nCommon interests: travel, food, sports, partying — naturally aligned\r\n\r\nBalance of love, friendship, and parenting', 'Khusboo & Romy Patni', 12, 51),
+(67, 'fbed3ff7-3696-49d2-b423-6237faa285e8.jpeg', 'gfasxgh  ghshvcvds', 'SWati khatri', 13, 0);
 
 -- --------------------------------------------------------
 
@@ -3813,6 +3834,13 @@ ALTER TABLE `events`
   ADD PRIMARY KEY (`event_id`);
 
 --
+-- Indexes for table `event_admin`
+--
+ALTER TABLE `event_admin`
+  ADD PRIMARY KEY (`admin_id`),
+  ADD UNIQUE KEY `uq_event_admin_email` (`email`);
+
+--
 -- Indexes for table `nominee`
 --
 ALTER TABLE `nominee`
@@ -3849,7 +3877,7 @@ ALTER TABLE `allowed_mobiles`
 -- AUTO_INCREMENT for table `category`
 --
 ALTER TABLE `category`
-  MODIFY `category_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+  MODIFY `category_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `events`
@@ -3858,10 +3886,16 @@ ALTER TABLE `events`
   MODIFY `event_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `event_admin`
+--
+ALTER TABLE `event_admin`
+  MODIFY `admin_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `nominee`
 --
 ALTER TABLE `nominee`
-  MODIFY `nominee_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=67;
+  MODIFY `nominee_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=68;
 
 --
 -- AUTO_INCREMENT for table `users`

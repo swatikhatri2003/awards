@@ -11,6 +11,7 @@ import {
   readUid,
   readUserVotes,
 } from "../_lib/userSession";
+import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 import { resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
 
 const FALLBACK_PHOTO =
@@ -103,10 +104,8 @@ function clientVotingWindowOpen(ev: EventMeta | null): boolean {
 
 export default function UsersVotePage() {
   const router = useRouter();
-  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
-  const apiBaseRoot = rawApiBase.replace(/\/+$/, "");
-  const apiBase = /\/api$/i.test(apiBaseRoot) ? apiBaseRoot : `${apiBaseRoot}/api`;
-  const apiOrigin = React.useMemo(() => apiBase.replace(/\/api$/i, ""), [apiBase]);
+  const apiBase = getPublicApiBase();
+  const apiOrigin = getUploadsOrigin();
 
   const [user, setUser] = React.useState<ReturnType<typeof readCurrentUser>>(null);
   const [uid, setUid] = React.useState<number | null>(null);

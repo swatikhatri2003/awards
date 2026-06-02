@@ -4,6 +4,7 @@ import React, { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Field, Shell } from "../_components/Shell";
 import { writePendingRegistration } from "../_lib/authSession";
+import { getPublicApiBase } from "../_lib/publicApiBase";
 
 function normalizeMobile(v: string) {
   return v.replace(/[^\d]/g, "");
@@ -48,9 +49,7 @@ function RegisterContent() {
     mobile: "",
   });
 
-  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
-  const apiBaseRoot = rawApiBase.replace(/\/+$/, "");
-  const apiBase = /\/api$/i.test(apiBaseRoot) ? apiBaseRoot : `${apiBaseRoot}/api`;
+  const apiBase = getPublicApiBase();
   const eventId = React.useMemo(() => {
     const raw = searchParams?.get("eventId") || "";
     const n = Number(raw);

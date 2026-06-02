@@ -1,10 +1,13 @@
 "use client";
 
-import React from "react";
+import React, { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import styles from "./screen.module.css";
 import { subscribeYlf, type YlfNominee, type YlfState } from "@/lib/firebase";
 import QRCode from "qrcode";
-import { resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
+import { withBasePath } from "../_lib/basePath";
+import { getPublicApiBase } from "../_lib/publicApiBase";
+import { resolveEventBannerUrl, resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
 
 const FALLBACK_PHOTO =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23111424'/%3E%3Ctext x='50%25' y='50%25' fill='%23aab3c5' font-size='14' text-anchor='middle' dominant-baseline='middle'%3ENo Photo%3C/text%3E%3C/svg%3E";
@@ -19,7 +22,7 @@ function normalizeNominees(
   return Object.values(nominees).filter(Boolean);
 }
 
-function HomeStage() {
+function HomeStage({ photoSrc, alt }: { photoSrc: string; alt: string }) {
   return (
     <div
       style={{
@@ -33,8 +36,8 @@ function HomeStage() {
       }}
     >
       <img
-        src="/ylf-member-awards-banner.png"
-        alt=""
+        src={photoSrc}
+        alt={alt}
         style={{
           width: "100%",
           height: "100%",
@@ -46,13 +49,15 @@ function HomeStage() {
   );
 }
 
-function QrStage() {
+function QrStage({ eventId }: { eventId: number }) {
   const [src, setSrc] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const url =
       process.env.NEXT_PUBLIC_VOTE_URL ||
-      (typeof window !== "undefined" ? `${window.location.origin}/register` : "");
+      (typeof window !== "undefined"
+        ? `${window.location.origin}${withBasePath(`/register?eventId=${eventId}`)}`
+        : "");
     if (!url) return;
 
     let cancelled = false;
@@ -73,7 +78,7 @@ function QrStage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [eventId]);
 
   return (
     <div
@@ -244,11 +249,15 @@ function formatMMSS(msLeft: number) {
   return `${mm}:${ss}`;
 }
 
-function ScreenView({ apiBase }: { apiBase: string }) {
+function ScreenView({ apiBase, eventId }: { apiBase: string; eventId: number }) {
   const apiOrigin = React.useMemo(() => apiBase.replace(/\/api$/i, ""), [apiBase]);
   const [state, setState] = React.useState<YlfState | null>(null);
   const [connected, setConnected] = React.useState(false);
   const [tick, setTick] = React.useState(0);
+  const [homeBanner, setHomeBanner] = React.useState({
+    name: "Event",
+    photoSrc: "/ylf-member-awards-banner.png",
+  });
 
   React.useEffect(() => {
     const prev = document.body.style.overflow;
@@ -259,16 +268,36 @@ function ScreenView({ apiBase }: { apiBase: string }) {
   }, []);
 
   React.useEffect(() => {
-    console.log("[SCREEN] subscribing to ylf...");
-    const unsubscribe = subscribeYlf((next) => {
+    let cancelled = false;
+    void fetch(`${apiBase}/events/${eventId}`)
+      .then((r) => r.json())
+      .then((d: { ok?: boolean; event?: { title?: string; image?: string | null } }) => {
+        if (cancelled || !d?.event) return;
+        const ev = d.event;
+        const rawImg = (ev.image || "").trim();
+        const resolved = rawImg ? resolveEventBannerUrl(apiOrigin, rawImg) : "";
+        setHomeBanner({
+          name: (ev.title && String(ev.title).trim()) || "Event",
+          photoSrc: resolved || "/ylf-member-awards-banner.png",
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, apiOrigin, eventId]);
+
+  React.useEffect(() => {
+    console.log(`[SCREEN] subscribing to event ${eventId}...`);
+    const unsubscribe = subscribeYlf(eventId, (next) => {
       setState(next);
       setConnected(true);
     });
     return () => {
-      console.log("[SCREEN] unsubscribing from ylf");
+      console.log(`[SCREEN] unsubscribing from event ${eventId}`);
       unsubscribe();
     };
-  }, []);
+  }, [eventId]);
 
   const page = state?.page ?? "home";
   const timer = state?.timer;
@@ -301,13 +330,13 @@ function ScreenView({ apiBase }: { apiBase: string }) {
           {!connected ? (
             <div className={styles.connecting}>Connecting to live screen feed...</div>
           ) : page === "qr" ? (
-            <QrStage />
+            <QrStage eventId={eventId} />
           ) : page === "category" && state?.category ? (
             <CategoryStage apiOrigin={apiOrigin} category={state.category} />
           ) : page === "graph" && state?.category ? (
             <GraphStage apiOrigin={apiOrigin} category={state.category} />
           ) : (
-            <HomeStage />
+            <HomeStage photoSrc={homeBanner.photoSrc} alt={homeBanner.name} />
           )}
         </div>
       </div>
@@ -315,9 +344,39 @@ function ScreenView({ apiBase }: { apiBase: string }) {
   );
 }
 
+function ScreenGate() {
+  const searchParams = useSearchParams();
+  const apiBase = getPublicApiBase();
+  const eventIdRaw = searchParams.get("eventId");
+  const eventId = eventIdRaw ? Number(eventIdRaw) : NaN;
+
+  if (!Number.isFinite(eventId) || eventId <= 0) {
+    return (
+      <div className={styles.root}>
+        <div className={styles.stage}>
+          <div className={styles.connecting}>
+            Missing or invalid event. Open LED from Actions (Admin → A) with a valid event.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <ScreenView apiBase={apiBase} eventId={eventId} />;
+}
+
 export default function ScreenPage() {
-  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
-  const apiBaseRoot = rawApiBase.replace(/\/+$/, "");
-  const apiBase = /\/api$/i.test(apiBaseRoot) ? apiBaseRoot : `${apiBaseRoot}/api`;
-  return <ScreenView apiBase={apiBase} />;
+  return (
+    <Suspense
+      fallback={
+        <div className={styles.root}>
+          <div className={styles.stage}>
+            <div className={styles.connecting}>Loading screen…</div>
+          </div>
+        </div>
+      }
+    >
+      <ScreenGate />
+    </Suspense>
+  );
 }

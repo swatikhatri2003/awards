@@ -3,16 +3,11 @@
 import React from "react";
 import { HomeExperience } from "./_components/HomeExperience";
 import type { HomePublicEvent } from "./_components/landingUtils";
-
-function normalizeApiBase(raw: string) {
-  const root = raw.replace(/\/+$/, "");
-  return /\/api$/i.test(root) ? root : `${root}/api`;
-}
+import { getPublicApiBase, getUploadsOrigin } from "./_lib/publicApiBase";
 
 export default function HomePage() {
-  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
-  const apiBase = normalizeApiBase(rawApiBase);
-  const apiOrigin = apiBase.replace(/\/api$/i, "");
+  const apiBase = getPublicApiBase();
+  const apiOrigin = getUploadsOrigin();
 
   const [events, setEvents] = React.useState<HomePublicEvent[]>([]);
   const [eventsLoading, setEventsLoading] = React.useState(true);

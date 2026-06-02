@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Shell } from "../../_components/Shell";
 import { setYlfNomineeVotes, subscribeYlf, type YlfNominee, type YlfState } from "@/lib/firebase";
 import { readCurrentUser } from "../../_lib/userSession";
+import { getPublicApiBase } from "../../_lib/publicApiBase";
 import { resolveNomineePhotoUrl } from "../../_lib/resolveImageUrl";
 
 const FALLBACK_PHOTO =
@@ -163,8 +164,11 @@ function CategoryVoteStage({
 
       const nextVotes = Number(data?.nominee?.votes);
       if (Number.isFinite(nextVotes)) {
-        // Update live screen data source immediately (graph reads from RTDB "ylf").
-        await setYlfNomineeVotes({ nomineeId: selectedNomineeId, votes: nextVotes });
+        const eventId =
+          typeof currentUser?.eventId === "number" && currentUser.eventId > 0
+            ? currentUser.eventId
+            : 1;
+        await setYlfNomineeVotes(eventId, { nomineeId: selectedNomineeId, votes: nextVotes });
       }
 
       const map = readVotedMap();
@@ -361,24 +365,26 @@ function CategoryVoteStage({
 
 export default function VoteClient() {
   const router = useRouter();
-  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
-  const apiBaseRoot = rawApiBase.replace(/\/+$/, "");
-  const apiBase = /\/api$/i.test(apiBaseRoot) ? apiBaseRoot : `${apiBaseRoot}/api`;
+  const apiBase = getPublicApiBase();
+  const eventId = React.useMemo(() => {
+    const u = readCurrentUser();
+    return typeof u?.eventId === "number" && u.eventId > 0 ? u.eventId : 1;
+  }, []);
 
   const [state, setState] = React.useState<YlfState | null>(null);
   const [connected, setConnected] = React.useState(false);
 
   React.useEffect(() => {
-    console.log("[VOTE] subscribing to ylf...");
-    const unsubscribe = subscribeYlf((next) => {
+    console.log(`[VOTE] subscribing to event ${eventId}...`);
+    const unsubscribe = subscribeYlf(eventId, (next) => {
       setState(next);
       setConnected(true);
     });
     return () => {
-      console.log("[VOTE] unsubscribing from ylf");
+      console.log(`[VOTE] unsubscribing from event ${eventId}`);
       unsubscribe();
     };
-  }, []);
+  }, [eventId]);
 
   const page = state?.page ?? "home";
 

@@ -6,16 +6,11 @@ import { SiteNav } from "../_components/SiteNav";
 import { PublicEventsList } from "../_components/PublicEventsList";
 import type { HomePublicEvent } from "../_components/landingUtils";
 import { withBasePath } from "../_lib/basePath";
-
-function normalizeApiBase(raw: string) {
-  const root = raw.replace(/\/+$/, "");
-  return /\/api$/i.test(root) ? root : `${root}/api`;
-}
+import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 
 export default function PublicEventsPage() {
-  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
-  const apiBase = normalizeApiBase(rawApiBase);
-  const apiOrigin = apiBase.replace(/\/api$/i, "");
+  const apiBase = getPublicApiBase();
+  const apiOrigin = getUploadsOrigin();
 
   const [events, setEvents] = React.useState<HomePublicEvent[]>([]);
   const [loading, setLoading] = React.useState(true);

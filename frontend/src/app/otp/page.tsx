@@ -4,6 +4,7 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import { Field, Shell } from "../_components/Shell";
 import { clearPendingRegistration, readPendingRegistration } from "../_lib/authSession";
+import { getPublicApiBase } from "../_lib/publicApiBase";
 import { writeCurrentUser } from "../_lib/userSession";
 
 function normalizeMobile(v: string) {
@@ -34,9 +35,7 @@ export default function OtpPage() {
   const [otp, setOtp] = React.useState("");
   const [pending, setPending] = React.useState<ReturnType<typeof readPendingRegistration>>(null);
 
-  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
-  const apiBaseRoot = rawApiBase.replace(/\/+$/, "");
-  const apiBase = /\/api$/i.test(apiBaseRoot) ? apiBaseRoot : `${apiBaseRoot}/api`;
+  const apiBase = getPublicApiBase();
 
   React.useEffect(() => {
     const p = readPendingRegistration();

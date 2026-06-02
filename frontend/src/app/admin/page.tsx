@@ -9,6 +9,7 @@ import {
   readAdminToken,
   writeAdminSession,
 } from "../_lib/adminAuthSession";
+import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 
 type ApiEvent = {
   event_id: number;
@@ -20,11 +21,6 @@ type ApiEvent = {
   start_time?: string | null;
   end_time?: string | null;
 };
-
-function normalizeApiBase(raw: string) {
-  const root = raw.replace(/\/+$/, "");
-  return /\/api$/i.test(root) ? root : `${root}/api`;
-}
 
 function toDatetimeLocalValue(iso: string | null | undefined): string {
   if (iso == null || iso === "") return "";
@@ -198,6 +194,15 @@ const css = `
     border: 1px solid rgba(240,82,82,0.25);
     border-radius: var(--radius);
     color: var(--danger);
+    font-size: 13px;
+    padding: 10px 14px;
+    margin-bottom: 1rem;
+  }
+  .info-box {
+    background: var(--success-dim);
+    border: 1px solid rgba(5, 150, 105, 0.25);
+    border-radius: var(--radius);
+    color: var(--success);
     font-size: 13px;
     padding: 10px 14px;
     margin-bottom: 1rem;
@@ -443,19 +448,22 @@ function BoltIcon() {
 function AdminContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
-  const apiBase = normalizeApiBase(rawApiBase);
-  const apiOrigin = apiBase.replace(/\/api$/i, "");
+  const apiBase = getPublicApiBase();
+  const apiOrigin = getUploadsOrigin();
 
   const nextAfterLogin = searchParams.get("next") || "";
   const presetEventId = searchParams.get("eventId") || "";
 
-  const [view, setView] = React.useState<"auth" | "forgot" | "reset" | "dashboard">("auth");
+  const [view, setView] = React.useState<
+    "auth" | "forgot" | "reset" | "register" | "register-verify" | "dashboard"
+  >("auth");
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [info, setInfo] = React.useState<string | null>(null);
 
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
   const [otp, setOtp] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
 
@@ -469,6 +477,7 @@ function AdminContent() {
   const [createEndLocal, setCreateEndLocal] = React.useState("");
   const [uploading, setUploading] = React.useState(false);
   const [editingEventId, setEditingEventId] = React.useState<number | null>(null);
+  const createPanelRef = React.useRef<HTMLDivElement>(null);
 
   const loadEvents = React.useCallback(async () => {
     const token = readAdminToken();
@@ -501,16 +510,149 @@ function AdminContent() {
     if (nextAfterLogin.startsWith("/")) router.push(withBasePath(nextAfterLogin));
   }
 
-  async function submitSignIn(e: React.FormEvent) {
-    e.preventDefault(); setLoading(true); setError(null);
+  function validateEmail(value: string): string | null {
+    const v = value.trim().toLowerCase();
+    if (!v) return "Email is required.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return "Enter a valid email address.";
+    return null;
+  }
+
+  function validatePassword(value: string): string | null {
+    if (!value) return "Password is required.";
+    if (value.length < 8) return "Password must be at least 8 characters.";
+    if (value.length > 72) return "Password must be at most 72 characters.";
+    return null;
+  }
+
+  function openRegister() {
+    setError(null);
+    setConfirmPassword("");
+    setOtp("");
+    setView("register");
+  }
+
+  async function submitRegister(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    const emailErr = validateEmail(email);
+    if (emailErr) { setError(emailErr); setLoading(false); return; }
+    const pwErr = validatePassword(password);
+    if (pwErr) { setError(pwErr); setLoading(false); return; }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      setLoading(false);
+      return;
+    }
     try {
-      const r = await fetch(`${apiBase}/admin/auth/sign-in`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim(), password }) });
+      const r = await fetch(`${apiBase}/admin/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      });
       const data = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(data?.message || data?.error || "SIGN_IN_FAILED");
+      if (!r.ok) throw new Error(data?.message || data?.error || "REGISTER_FAILED");
+      setOtp("");
+      setView("register-verify");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "REGISTER_FAILED");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitRegisterVerify(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    const emailErr = validateEmail(email);
+    if (emailErr) { setError(emailErr); setLoading(false); return; }
+    const code = otp.trim();
+    if (!/^\d{6}$/.test(code)) {
+      setError("Enter the 6-digit OTP from your email.");
+      setLoading(false);
+      return;
+    }
+    try {
+      const r = await fetch(`${apiBase}/admin/auth/verify-registration`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), otp: code }),
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(data?.message || data?.error || "VERIFY_FAILED");
       writeAdminSession(data.token, data.admin);
-      setPassword(""); setView("dashboard"); await loadEvents(); redirectAfterLogin();
-    } catch (err) { setError(err instanceof Error ? err.message : "SIGN_IN_FAILED"); }
-    finally { setLoading(false); }
+      setPassword("");
+      setConfirmPassword("");
+      setOtp("");
+      setView("dashboard");
+      await loadEvents();
+      redirectAfterLogin();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "VERIFY_FAILED");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function resendRegisterOtp() {
+    setLoading(true);
+    setError(null);
+    setInfo(null);
+    const emailErr = validateEmail(email);
+    const pwErr = validatePassword(password);
+    if (emailErr || pwErr) {
+      setError(emailErr || pwErr || "Enter email and password on the register screen first.");
+      setLoading(false);
+      return;
+    }
+    try {
+      const r = await fetch(`${apiBase}/admin/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(data?.message || data?.error || "RESEND_FAILED");
+      setInfo("A new OTP has been sent to your email.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "RESEND_FAILED");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitSignIn(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    const emailErr = validateEmail(email);
+    if (emailErr) { setError(emailErr); setLoading(false); return; }
+    const pwErr = validatePassword(password);
+    if (pwErr) { setError(pwErr); setLoading(false); return; }
+    try {
+      const r = await fetch(`${apiBase}/admin/auth/sign-in`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) {
+        if (data?.error === "EMAIL_NOT_VERIFIED") {
+          setView("register-verify");
+        }
+        throw new Error(data?.message || data?.error || "SIGN_IN_FAILED");
+      }
+      writeAdminSession(data.token, data.admin);
+      setPassword("");
+      setView("dashboard");
+      await loadEvents();
+      redirectAfterLogin();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "SIGN_IN_FAILED");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function submitForgot(e: React.FormEvent) {
@@ -547,7 +689,9 @@ function AdminContent() {
     setCreateStartLocal(toDatetimeLocalValue(ev.start_time));
     setCreateEndLocal(toDatetimeLocalValue(ev.end_time));
     setError(null);
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    if (typeof window !== "undefined") {
+      createPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
 
   function cancelEditEvent() {
@@ -609,6 +753,120 @@ function AdminContent() {
   /* ─── Dashboard view ─── */
   if (view === "dashboard") {
     const token = readAdminToken();
+    const hasEvents = events.length > 0;
+
+    const createPanel = (
+      <div className="panel" ref={createPanelRef}>
+        <div className="panel-title">
+          {editingEventId != null ? "Edit event" : "New event"}
+          {editingEventId != null && <span className="panel-title-pill">Editing</span>}
+        </div>
+
+        <form onSubmit={submitCreateEvent}>
+          <div className="row-mix">
+            <div className="field">
+              <div className="label">Event title *</div>
+              <input className="input" required value={createTitle} onChange={e => setCreateTitle(e.target.value)} maxLength={200} placeholder="Enter event name" />
+            </div>
+            <div className="field">
+              <div className="label">Visibility</div>
+              <label className="toggle-field">
+                <input type="checkbox" className="switch" role="switch" checked={createIsPrivate} onChange={e => setCreateIsPrivate(e.target.checked)} aria-checked={createIsPrivate} />
+                <span className="toggle-label">Private (invite-only)</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="field">
+            <div className="label">Description</div>
+            <textarea className="input" value={createDescription} onChange={e => setCreateDescription(e.target.value)} maxLength={500} rows={2} placeholder="Optional short description" />
+          </div>
+
+          <div className="field">
+            <div className="label">Banner image</div>
+            <input className="input" type="file" accept="image/*" disabled={uploading || loading}
+              onChange={e => {
+                const f = e.currentTarget.files?.[0];
+                if (f) {
+                  setEventBannerPreviewUrl(prev => { if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev); return URL.createObjectURL(f); });
+                  setCreateImageName(""); void uploadEventPhoto(f);
+                }
+                e.currentTarget.value = "";
+              }}
+            />
+            {eventBannerPreviewUrl ? (
+              <div className="banner-preview">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={eventBannerPreviewUrl} alt="" />
+                <span className={`banner-badge ${uploading ? "badge-busy" : createImageName ? "badge-ok" : "badge-preview"}`}>
+                  {uploading ? "Uploading…" : createImageName ? "Banner ready" : "Preview"}
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          <fieldset className="fieldset">
+            <legend className="fieldset-legend">Voting window</legend>
+            <p className="fieldset-hint">Set both to restrict when votes count, or leave empty for open voting.</p>
+            <div className="grid2">
+              <div className="field" style={{ margin: 0 }}>
+                <div className="label">Start</div>
+                <input className="input" type="datetime-local" value={createStartLocal} onChange={e => setCreateStartLocal(e.target.value)} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <div className="label">End</div>
+                <input className="input" type="datetime-local" value={createEndLocal} onChange={e => setCreateEndLocal(e.target.value)} />
+              </div>
+            </div>
+          </fieldset>
+
+          <div className="actions-row">
+            <button type="submit" className="btn" disabled={loading || uploading}>
+              {loading ? "Saving…" : editingEventId != null ? "Save changes" : "Create event"}
+            </button>
+            {editingEventId != null && (
+              <button type="button" className="btn btn-ghost" disabled={loading || uploading} onClick={cancelEditEvent}>Cancel</button>
+            )}
+          </div>
+        </form>
+      </div>
+    );
+
+    const eventsSection = (
+      <>
+        <div className="section-head">
+          <span className="section-title">Your events</span>
+          <span style={{ fontSize: 13, color: "var(--text-faint)" }}>{events.length} total</span>
+        </div>
+
+        {events.length === 0 ? (
+          <p className="hint">No events yet — create one {hasEvents ? "below" : "above"}.</p>
+        ) : (
+          <div className="event-list">
+            {events.map(ev => (
+              <div key={ev.event_id} className="event-card">
+                <div className="event-header">
+                  <span className="event-title">{ev.title || "Untitled"}</span>
+                  <span className={`event-badge ${ev.is_private === true || ev.is_private === 1 ? "badge-private" : "badge-public"}`}>
+                    {ev.is_private === true || ev.is_private === 1 ? "Private" : "Public"}
+                  </span>
+                </div>
+                {ev.description && <p className="event-desc">{ev.description}</p>}
+                <div className="event-actions">
+                  <button type="button" className="btn btn-ghost" onClick={() => beginEditEvent(ev)}>Edit</button>
+                  <a className="btn btn-ghost" href={withBasePath(`/awards_f/actions?eventId=${ev.event_id}`)} style={{ textDecoration: "none" }}>Manage Categories & Nominees</a>
+                  <a className="btn btn-ghost" href={withBasePath(`/awards_f/screen?eventId=${ev.event_id}`)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>Open LED</a>
+                  <button type="button" className="btn btn-ghost" onClick={() => void navigator.clipboard.writeText(fullRegisterUrl(ev.event_id))}>
+                    Copy register link
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </>
+    );
+
     return (
       <div className="page">
         <style>{css}</style>
@@ -623,111 +881,16 @@ function AdminContent() {
 
           {error && <div className="error-box">{error}</div>}
 
-          {/* Create / Edit panel */}
-          <div className="panel">
-            <div className="panel-title">
-              {editingEventId != null ? "Edit event" : "New event"}
-              {editingEventId != null && <span className="panel-title-pill">Editing</span>}
-            </div>
-
-            <form onSubmit={submitCreateEvent}>
-              <div className="row-mix">
-                <div className="field">
-                  <div className="label">Event title *</div>
-                  <input className="input" required value={createTitle} onChange={e => setCreateTitle(e.target.value)} maxLength={200} placeholder="Enter event name" />
-                </div>
-                <div className="field">
-                  <div className="label">Visibility</div>
-                  <label className="toggle-field">
-                    <input type="checkbox" className="switch" role="switch" checked={createIsPrivate} onChange={e => setCreateIsPrivate(e.target.checked)} aria-checked={createIsPrivate} />
-                    <span className="toggle-label">Private (invite-only)</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="field">
-                <div className="label">Description</div>
-                <textarea className="input" value={createDescription} onChange={e => setCreateDescription(e.target.value)} maxLength={500} rows={2} placeholder="Optional short description" />
-              </div>
-
-              <div className="field">
-                <div className="label">Banner image</div>
-                <input className="input" type="file" accept="image/*" disabled={uploading || loading}
-                  onChange={e => {
-                    const f = e.currentTarget.files?.[0];
-                    if (f) {
-                      setEventBannerPreviewUrl(prev => { if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev); return URL.createObjectURL(f); });
-                      setCreateImageName(""); void uploadEventPhoto(f);
-                    }
-                    e.currentTarget.value = "";
-                  }}
-                />
-                {eventBannerPreviewUrl ? (
-                  <div className="banner-preview">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={eventBannerPreviewUrl} alt="" />
-                    <span className={`banner-badge ${uploading ? "badge-busy" : createImageName ? "badge-ok" : "badge-preview"}`}>
-                      {uploading ? "Uploading…" : createImageName ? "Banner ready" : "Preview"}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-
-              <fieldset className="fieldset">
-                <legend className="fieldset-legend">Voting window</legend>
-                <p className="fieldset-hint">Set both to restrict when votes count, or leave empty for open voting.</p>
-                <div className="grid2">
-                  <div className="field" style={{ margin: 0 }}>
-                    <div className="label">Start</div>
-                    <input className="input" type="datetime-local" value={createStartLocal} onChange={e => setCreateStartLocal(e.target.value)} />
-                  </div>
-                  <div className="field" style={{ margin: 0 }}>
-                    <div className="label">End</div>
-                    <input className="input" type="datetime-local" value={createEndLocal} onChange={e => setCreateEndLocal(e.target.value)} />
-                  </div>
-                </div>
-              </fieldset>
-
-              <div className="actions-row">
-                <button type="submit" className="btn" disabled={loading || uploading}>
-                  {loading ? "Saving…" : editingEventId != null ? "Save changes" : "Create event"}
-                </button>
-                {editingEventId != null && (
-                  <button type="button" className="btn btn-ghost" disabled={loading || uploading} onClick={cancelEditEvent}>Cancel</button>
-                )}
-              </div>
-            </form>
-          </div>
-
-          {/* Events list */}
-          <div className="section-head">
-            <span className="section-title">Your events</span>
-            <span style={{ fontSize: 13, color: "var(--text-faint)" }}>{events.length} total</span>
-          </div>
-
-          {events.length === 0 ? (
-            <p className="hint">No events yet — create one above.</p>
+          {hasEvents ? (
+            <>
+              {eventsSection}
+              {createPanel}
+            </>
           ) : (
-            <div className="event-list">
-              {events.map(ev => (
-                <div key={ev.event_id} className="event-card">
-                  <div className="event-header">
-                    <span className="event-title">{ev.title || "Untitled"}</span>
-                    <span className={`event-badge ${ev.is_private === true || ev.is_private === 1 ? "badge-private" : "badge-public"}`}>
-                      {ev.is_private === true || ev.is_private === 1 ? "Private" : "Public"}
-                    </span>
-                  </div>
-                  {ev.description && <p className="event-desc">{ev.description}</p>}
-                  <div className="event-actions">
-                    <button type="button" className="btn btn-ghost" onClick={() => beginEditEvent(ev)}>Edit</button>
-                    <a className="btn btn-ghost" href={withBasePath(`/actions?eventId=${ev.event_id}`)} style={{ textDecoration: "none" }}>Open LED actions</a>
-                    <button type="button" className="btn btn-ghost" onClick={() => void navigator.clipboard.writeText(fullRegisterUrl(ev.event_id))}>
-                      Copy register link
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <>
+              {createPanel}
+              {eventsSection}
+            </>
           )}
 
           {!token && <p className="error-box" style={{ marginTop: 16 }}>Session missing — please log in again.</p>}
@@ -759,6 +922,136 @@ function AdminContent() {
             </form>
             <div className="auth-footer">
               <button type="button" className="link-btn" onClick={() => setView("auth")}>← Back to sign in</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ─── Register ─── */
+  if (view === "register") {
+    return (
+      <div className="page">
+        <style>{css}</style>
+        <div className="auth-wrap">
+          <div className="auth-card">
+            <div className="auth-logo">
+              <div className="auth-logo-icon"><BoltIcon /></div>
+              <span className="auth-logo-text">Event Admin</span>
+            </div>
+            <div className="auth-title">Create account</div>
+            <div className="auth-subtitle">Register with your email. We will send a one-time code to verify it.</div>
+            {error && <div className="error-box">{error}</div>}
+            <form onSubmit={submitRegister}>
+              <div className="field">
+                <div className="label">Email</div>
+                <input
+                  className="input"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                />
+              </div>
+              <div className="field">
+                <div className="label">Password</div>
+                <input
+                  className="input"
+                  type="password"
+                  required
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  minLength={8}
+                  maxLength={72}
+                />
+              </div>
+              <div className="field">
+                <div className="label">Confirm password</div>
+                <input
+                  className="input"
+                  type="password"
+                  required
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter password"
+                  minLength={8}
+                  maxLength={72}
+                />
+              </div>
+              <button type="submit" className="btn btn-full" disabled={loading}>
+                {loading ? "Sending OTP…" : "Send OTP"}
+              </button>
+            </form>
+            <div className="auth-footer" style={{ flexDirection: "column", gap: 10 }}>
+              <button type="button" className="link-btn" onClick={() => { setError(null); setView("auth"); }}>
+                Already have an account? Sign in
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ─── Register OTP verify ─── */
+  if (view === "register-verify") {
+    return (
+      <div className="page">
+        <style>{css}</style>
+        <div className="auth-wrap">
+          <div className="auth-card">
+            <div className="auth-logo">
+              <div className="auth-logo-icon"><BoltIcon /></div>
+              <span className="auth-logo-text">Event Admin</span>
+            </div>
+            <div className="auth-title">Verify your email</div>
+            <div className="auth-subtitle">
+              Enter the 6-digit OTP sent to <strong>{email.trim() || "your email"}</strong>.
+            </div>
+            {error && <div className="error-box">{error}</div>}
+            {info && <div className="info-box">{info}</div>}
+            <form onSubmit={submitRegisterVerify}>
+              <div className="field">
+                <div className="label">Email</div>
+                <input
+                  className="input"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                />
+              </div>
+              <div className="field">
+                <div className="label">OTP</div>
+                <input
+                  className="input"
+                  required
+                  value={otp}
+                  onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="6-digit code"
+                  inputMode="numeric"
+                  maxLength={6}
+                  pattern="\d{6}"
+                />
+              </div>
+              <button type="submit" className="btn btn-full" disabled={loading}>
+                {loading ? "Verifying…" : "Verify & continue"}
+              </button>
+            </form>
+            <div className="auth-footer" style={{ flexDirection: "column", gap: 10 }}>
+              <button type="button" className="link-btn" disabled={loading} onClick={() => void resendRegisterOtp()}>
+                Resend OTP
+              </button>
+              <button type="button" className="link-btn" onClick={() => { setError(null); setView("register"); }}>
+                ← Back to register
+              </button>
             </div>
           </div>
         </div>
@@ -812,21 +1105,25 @@ function AdminContent() {
             <span className="auth-logo-text">Event Admin</span>
           </div>
           <div className="auth-title">Welcome back</div>
-          <div className="auth-subtitle">Sign in to manage your events. New emails register automatically.</div>
+          <div className="auth-subtitle">Sign in to manage your events.</div>
           {error && <div className="error-box">{error}</div>}
           <form onSubmit={submitSignIn}>
             <div className="field">
               <div className="label">Email</div>
-              <input className="input" type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
+              <input className="input" type="email" required autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
             </div>
             <div className="field">
               <div className="label">Password</div>
-              <input className="input" type="password" required value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters" />
+              <input className="input" type="password" required autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters" minLength={8} maxLength={72} />
             </div>
-            <button type="submit" className="btn btn-full" disabled={loading}>{loading ? "Please wait…" : "Continue"}</button>
+            <button type="submit" className="btn btn-full" disabled={loading}>{loading ? "Please wait…" : "Sign in"}</button>
           </form>
-          <div className="auth-footer">
-            <button type="button" className="link-btn" onClick={() => setView("forgot")}>Forgot password?</button>
+          <div className="auth-footer" style={{ flexDirection: "column", gap: 10 }}>
+            <button type="button" className="link-btn" onClick={() => { setError(null); setView("forgot"); }}>Forgot password?</button>
+            <span style={{ color: "var(--text-muted)" }}>
+              Don&apos;t have an account?{" "}
+              <button type="button" className="link-btn" onClick={openRegister}>Register</button>
+            </span>
           </div>
         </div>
       </div>

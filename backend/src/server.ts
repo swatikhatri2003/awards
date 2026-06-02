@@ -38,6 +38,15 @@ const eventUploadDir = path.join(uploadRoot, "event");
 fs.mkdirSync(nomineeUploadDir, { recursive: true });
 fs.mkdirSync(eventUploadDir, { recursive: true });
 
+/** Persist only the file name in MySQL (never full paths or `/uploads/...` segments). */
+function storedUploadBasename(raw: string | null | undefined): string {
+  if (raw == null) return "";
+  const t = String(raw).trim();
+  if (!t) return "";
+  const normalized = t.replace(/\\/g, "/");
+  return path.posix.basename(normalized);
+}
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, nomineeUploadDir),
@@ -82,7 +91,6 @@ app.post("/api/uploads/nominee-photo", upload.single("photo"), (req, res) => {
   return res.json({
     ok: true,
     filename: file.filename,
-    path: `/uploads/nominee/${file.filename}`,
   });
 });
 
@@ -92,7 +100,6 @@ app.post("/api/uploads/event-photo", eventUpload.single("photo"), (req, res) => 
   return res.json({
     ok: true,
     filename: file.filename,
-    path: `/uploads/event/${file.filename}`,
   });
 });
 
@@ -151,10 +158,213 @@ const adminResetSchema = z.object({
   newPassword: z.string().min(8).max(72),
 });
 
-const adminCreateEventSchema = z.object({
+const adminRegisterSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).max(72),
+});
+
+const adminVerifyRegistrationSchema = z.object({
+  email: z.string().email(),
+  otp: z.string().regex(/^\d{6}$/),
+});
+
+function adminRegistrationOtp(): { otp: string; expires: Date } {
+  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  const expires = new Date(Date.now() + 10 * 60 * 1000);
+  return { otp, expires };
+}
+
+const adminEventFieldsSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(500).optional(),
   image: z.string().trim().max(150).optional(),
+  /** Default off (0): public registration; 1 = invite-only (`allowed_mobiles`). */
+  is_private: z.union([z.boolean(), z.number().int().min(0).max(1)]).optional(),
+  /** ISO datetime strings; both empty = no voting window restriction. */
+  start_time: z.string().optional(),
+  end_time: z.string().optional(),
+});
+
+function refineEventVotingWindow(
+  data: { start_time?: string; end_time?: string },
+  ctx: z.RefinementCtx,
+) {
+  const s = (data.start_time ?? "").trim();
+  const e = (data.end_time ?? "").trim();
+  const hasS = s.length > 0;
+  const hasE = e.length > 0;
+  if (hasS !== hasE) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Provide both voting start and end times, or leave both empty.",
+      path: ["start_time"],
+    });
+    return;
+  }
+  if (!hasS || !hasE) return;
+  const ds = new Date(s);
+  const de = new Date(e);
+  if (Number.isNaN(ds.getTime()) || Number.isNaN(de.getTime())) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Invalid voting window datetime.",
+      path: ["start_time"],
+    });
+  } else if (ds.getTime() >= de.getTime()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Voting end must be after start.",
+      path: ["end_time"],
+    });
+  }
+}
+
+const adminCreateEventSchema = adminEventFieldsSchema.superRefine(refineEventVotingWindow);
+
+const adminUpdateEventSchema = adminEventFieldsSchema
+  .partial()
+  .extend({
+    /** Allow explicit null / empty to clear text or banner in PATCH. */
+    image: z.union([z.string().trim().max(150), z.literal(""), z.null()]).optional(),
+    description: z.union([z.string().trim().max(500), z.literal(""), z.null()]).optional(),
+  })
+  .superRefine(refineEventVotingWindow);
+
+function coerceEventDate(v: unknown): Date | null {
+  if (v == null) return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
+  const d = new Date(String(v));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Both `start_time` and `end_time` must be set on the row to enforce a window; otherwise voting is always allowed. */
+function isWithinEventVotingWindow(start: unknown, end: unknown, now: Date): boolean {
+  const sd = coerceEventDate(start);
+  const ed = coerceEventDate(end);
+  if (!sd || !ed) return true;
+  return now.getTime() >= sd.getTime() && now.getTime() <= ed.getTime();
+}
+
+app.post("/api/admin/auth/register", async (req, res) => {
+  const parsed = adminRegisterSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_INPUT",
+      message: "Valid email and password (8+ characters) are required.",
+    });
+  }
+  const email = parsed.data.email.trim().toLowerCase();
+  const password = parsed.data.password;
+  const { otp, expires } = adminRegistrationOtp();
+  const pwHash = hashPassword(password);
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT admin_id, email_verified FROM event_admin WHERE email = :email LIMIT 1`,
+      { email },
+    );
+    const existing = rows[0];
+    if (existing) {
+      const verified =
+        existing.email_verified === 1 ||
+        existing.email_verified === true ||
+        existing.email_verified === "1";
+      if (verified) {
+        return res.status(409).json({
+          ok: false,
+          error: "EMAIL_EXISTS",
+          message: "An account with this email already exists. Sign in instead.",
+        });
+      }
+      await db.execute(
+        `UPDATE event_admin SET password = :pw, otp = :otp, otp_expires_at = :exp, email_verified = 0 WHERE email = :email`,
+        { pw: pwHash, otp, exp: expires, email },
+      );
+    } else {
+      await db.execute(
+        `INSERT INTO event_admin (email, password, otp, otp_expires_at, email_verified)
+         VALUES (:email, :pw, :otp, :exp, 0)`,
+        { email, pw: pwHash, otp, exp: expires },
+      );
+    }
+    try {
+      await sendOtpEmail({ to: email, otp });
+    } catch (err) {
+      console.warn("[Email] Admin registration OTP not sent", err);
+    }
+    return res.json({
+      ok: true,
+      message: "OTP sent to your email. Enter it to complete registration.",
+    });
+  } catch (e: unknown) {
+    const err = e as { code?: string };
+    if (err?.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        ok: false,
+        error: "EMAIL_EXISTS",
+        message: "An account with this email already exists. Sign in instead.",
+      });
+    }
+    console.error("admin register error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.post("/api/admin/auth/verify-registration", async (req, res) => {
+  const parsed = adminVerifyRegistrationSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_INPUT",
+      message: "Valid email and 6-digit OTP are required.",
+    });
+  }
+  const email = parsed.data.email.trim().toLowerCase();
+  const { otp } = parsed.data;
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT admin_id, otp AS db_otp, otp_expires_at, email_verified
+       FROM event_admin WHERE email = :email LIMIT 1`,
+      { email },
+    );
+    const row = rows[0];
+    if (!row) {
+      return res.status(400).json({
+        ok: false,
+        error: "NOT_FOUND",
+        message: "No registration found for this email. Register first.",
+      });
+    }
+    const verified =
+      row.email_verified === 1 || row.email_verified === true || row.email_verified === "1";
+    if (verified) {
+      return res.status(400).json({
+        ok: false,
+        error: "ALREADY_VERIFIED",
+        message: "This email is already verified. Sign in instead.",
+      });
+    }
+    if (!row.otp_expires_at || new Date(row.otp_expires_at).getTime() < Date.now()) {
+      return res.status(400).json({
+        ok: false,
+        error: "EXPIRED",
+        message: "OTP expired. Request a new OTP from the register screen.",
+      });
+    }
+    if (String(row.db_otp) !== otp) {
+      return res.status(400).json({ ok: false, error: "INVALID_OTP", message: "Invalid OTP." });
+    }
+    await db.execute(
+      `UPDATE event_admin SET email_verified = 1, otp = NULL, otp_expires_at = NULL WHERE email = :email`,
+      { email },
+    );
+    const adminId = Number(row.admin_id);
+    const token = signAdminToken({ adminId, email });
+    return res.json({ ok: true, token, admin: { adminId, email } });
+  } catch (e) {
+    console.error("admin verify-registration error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
 });
 
 app.post("/api/admin/auth/sign-in", async (req, res) => {
@@ -166,24 +376,27 @@ app.post("/api/admin/auth/sign-in", async (req, res) => {
   const password = parsed.data.password;
   try {
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT admin_id, email, password FROM event_admin WHERE email = :email LIMIT 1`,
+      `SELECT admin_id, email, password, email_verified FROM event_admin WHERE email = :email LIMIT 1`,
       { email },
     );
     const existing = rows[0];
     if (!existing) {
-      const pwHash = hashPassword(password);
-      const [result] = await db.execute(
-        `INSERT INTO event_admin (email, password, otp, otp_expires_at) VALUES (:email, :pw, NULL, NULL)`,
-        { email, pw: pwHash },
-      );
-      // @ts-expect-error mysql2
-      const adminId = Number(result?.insertId ?? 0);
-      const token = signAdminToken({ adminId, email });
-      return res.json({
-        ok: true,
-        created: true,
-        token,
-        admin: { adminId, email },
+      return res.status(401).json({
+        ok: false,
+        error: "NOT_FOUND",
+        message: "No account found for this email. Register first.",
+      });
+    }
+    const verified =
+      existing.email_verified === 1 ||
+      existing.email_verified === true ||
+      existing.email_verified === "1" ||
+      existing.email_verified == null;
+    if (!verified) {
+      return res.status(403).json({
+        ok: false,
+        error: "EMAIL_NOT_VERIFIED",
+        message: "Email not verified yet. Complete registration with the OTP we sent.",
       });
     }
     if (!verifyPassword(password, String(existing.password ?? ""))) {
@@ -197,7 +410,6 @@ app.post("/api/admin/auth/sign-in", async (req, res) => {
     const token = signAdminToken({ adminId, email });
     return res.json({
       ok: true,
-      created: false,
       token,
       admin: { adminId, email },
     });
@@ -295,7 +507,7 @@ app.get("/api/admin/events", async (req, res) => {
   if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
   try {
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT event_id, title, description, image, admin_id
+      `SELECT event_id, title, description, image, admin_id, is_private, start_time, end_time
        FROM events
        WHERE admin_id = :aid
        ORDER BY event_id DESC`,
@@ -313,28 +525,124 @@ app.post("/api/admin/events", async (req, res) => {
   if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
   const parsed = adminCreateEventSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ ok: false, error: "INVALID_INPUT", message: "Title is required (max 200 chars)." });
+    const msg =
+      parsed.error.issues[0]?.message ||
+      "Title is required (max 200 chars).";
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_INPUT",
+      message: msg,
+    });
   }
   try {
+    const ip = parsed.data.is_private;
+    const isPrivate =
+      ip === true || ip === 1 ? 1 : 0;
+    const startTrim = (parsed.data.start_time ?? "").trim();
+    const endTrim = (parsed.data.end_time ?? "").trim();
+    const startSql = startTrim ? new Date(startTrim) : null;
+    const endSql = endTrim ? new Date(endTrim) : null;
+
+    const imageRaw = parsed.data.image;
+    const imageStored =
+      typeof imageRaw === "string" && imageRaw.trim()
+        ? storedUploadBasename(imageRaw) || null
+        : null;
+
     const [result] = await db.execute(
-      `INSERT INTO events (title, description, image, admin_id)
-       VALUES (:title, :description, :image, :admin_id)`,
+      `INSERT INTO events (title, description, image, admin_id, is_private, start_time, end_time)
+       VALUES (:title, :description, :image, :admin_id, :is_private, :start_time, :end_time)`,
       {
         title: parsed.data.title,
         description: parsed.data.description ?? null,
-        image: parsed.data.image ?? null,
+        image: imageStored,
         admin_id: admin.adminId,
+        is_private: isPrivate,
+        start_time: startSql,
+        end_time: endSql,
       },
     );
     // @ts-expect-error mysql2
     const eventId = Number(result?.insertId ?? 0);
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT event_id, title, description, image, admin_id FROM events WHERE event_id = :id LIMIT 1`,
+      `SELECT event_id, title, description, image, admin_id, is_private, start_time, end_time FROM events WHERE event_id = :id LIMIT 1`,
       { id: eventId },
     );
     return res.json({ ok: true, event: rows[0] ?? null });
   } catch (e) {
     console.error("admin create event error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.patch("/api/admin/events/:eventId", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId) || eventId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_EVENT_ID" });
+  }
+  const parsed = adminUpdateEventSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const msg = parsed.error.issues[0]?.message || "Invalid input.";
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT", message: msg });
+  }
+  try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
+
+    const d = parsed.data;
+    const updates: string[] = [];
+    const params: Record<string, unknown> = { event_id: eventId };
+
+    if (typeof d.title === "string") {
+      updates.push("title = :title");
+      params.title = d.title;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, "description")) {
+      const desc = d.description;
+      updates.push("description = :description");
+      params.description =
+        desc == null ? null : typeof desc === "string" && desc.trim() ? desc.trim() : null;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, "image")) {
+      const raw = d.image;
+      const imageStored =
+        raw == null || (typeof raw === "string" && !raw.trim())
+          ? null
+          : storedUploadBasename(String(raw)) || null;
+      updates.push("image = :image");
+      params.image = imageStored;
+    }
+    if (d.is_private !== undefined) {
+      const ip = d.is_private;
+      updates.push("is_private = :is_private");
+      params.is_private = ip === true || ip === 1 ? 1 : 0;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(req.body, "start_time") ||
+      Object.prototype.hasOwnProperty.call(req.body, "end_time")
+    ) {
+      const startTrim = (d.start_time ?? "").trim();
+      const endTrim = (d.end_time ?? "").trim();
+      updates.push("start_time = :start_time", "end_time = :end_time");
+      params.start_time = startTrim ? new Date(startTrim) : null;
+      params.end_time = endTrim ? new Date(endTrim) : null;
+    }
+
+    if (!updates.length) {
+      return res.status(400).json({ ok: false, error: "NO_CHANGES" });
+    }
+
+    await db.execute(`UPDATE events SET ${updates.join(", ")} WHERE event_id = :event_id`, params as any);
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT event_id, title, description, image, admin_id, is_private, start_time, end_time FROM events WHERE event_id = :id LIMIT 1`,
+      { id: eventId },
+    );
+    return res.json({ ok: true, event: rows[0] ?? null });
+  } catch (e) {
+    console.error("admin update event error", e);
     return res.status(500).json({ ok: false, error: "DB_ERROR" });
   }
 });
@@ -346,7 +654,7 @@ app.get("/api/events/:eventId", async (req, res) => {
   }
   try {
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT event_id, title, description, image
+      `SELECT event_id, title, description, image, is_private, start_time, end_time
        FROM events
        WHERE event_id = :id
        LIMIT 1`,
@@ -357,6 +665,22 @@ app.get("/api/events/:eventId", async (req, res) => {
     return res.json({ ok: true, event: ev });
   } catch (e) {
     console.error("public event fetch error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+/** Open directory: events that allow open registration (not private / invite-only). */
+app.get("/api/public/events", async (_req, res) => {
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT event_id, title, description, image
+       FROM events
+       WHERE IFNULL(is_private, 0) = 0
+       ORDER BY event_id DESC`,
+    );
+    return res.json({ ok: true, events: rows });
+  } catch (e) {
+    console.error("public events list error", e);
     return res.status(500).json({ ok: false, error: "DB_ERROR" });
   }
 });
@@ -600,7 +924,7 @@ app.post("/api/admin/nominees", async (req, res) => {
       `INSERT INTO nominee (photo, name, description, category_id, votes)
        VALUES (:photo, :name, :description, :category_id, 0)`,
       {
-        photo: parsed.data.photo ?? "",
+        photo: storedUploadBasename(parsed.data.photo ?? ""),
         name: parsed.data.name,
         description: parsed.data.description ?? null,
         category_id: parsed.data.category_id,
@@ -669,7 +993,7 @@ app.patch("/api/admin/nominees/:nomineeId", async (req, res) => {
     }
     if (typeof parsed.data.photo === "string") {
       updates.push("photo = :photo");
-      params.photo = parsed.data.photo;
+      params.photo = storedUploadBasename(parsed.data.photo);
     }
     if (Object.prototype.hasOwnProperty.call(parsed.data, "description")) {
       updates.push("description = :description");
@@ -726,6 +1050,34 @@ app.post("/api/nominees/:nomineeId/vote", async (req, res) => {
   }
 
   try {
+    const [nomRows] = await db.execute<RowDataPacket[]>(
+      `SELECT category_id FROM nominee WHERE nominee_id = :nominee_id LIMIT 1`,
+      { nominee_id: nomineeId },
+    );
+    const catid = Number(nomRows[0]?.category_id);
+    if (Number.isFinite(catid) && catid > 0) {
+      const [catEventRows] = await db.execute<RowDataPacket[]>(
+        `SELECT c.event_id, e.start_time, e.end_time
+         FROM category c
+         LEFT JOIN events e ON e.event_id = c.event_id
+         WHERE c.category_id = :catid
+         LIMIT 1`,
+        { catid },
+      );
+      const catEv = catEventRows[0];
+      if (
+        catEv &&
+        catEv.event_id != null &&
+        !isWithinEventVotingWindow(catEv.start_time, catEv.end_time, new Date())
+      ) {
+        return res.status(403).json({
+          ok: false,
+          error: "VOTING_WINDOW_CLOSED",
+          message: "Voting is only open during the scheduled window for this event.",
+        });
+      }
+    }
+
     const [result] = await db.execute(
       `UPDATE nominee
        SET votes = COALESCE(votes, 0) + 1
@@ -784,18 +1136,55 @@ app.post("/api/auth/register", async (req, res) => {
   const attemptsLeft = 5;
 
   try {
-    // Allowlist gate: only mobile numbers present in `allowed_mobiles` may register.
-    // Store digits-only in that table (matches the schema's normalized `mobile`).
-    const [allowedRows] = await db.execute<RowDataPacket[]>(
-      `SELECT id FROM allowed_mobiles WHERE mobile = :mobile LIMIT 1`,
-      { mobile },
+    // Private events (`is_private` = 1): mobile must appear in `allowed_mobiles` for this `event_id`.
+    // Public events (`is_private` != 1 or NULL): anyone may register (no allowlist).
+    const [eventRows] = await db.execute<RowDataPacket[]>(
+      `SELECT is_private FROM events WHERE event_id = :eid LIMIT 1`,
+      { eid: effectiveEventId },
     );
-    if (!allowedRows[0]) {
-      return res.status(403).json({
+    const eventRow = eventRows[0];
+    if (!eventRow) {
+      return res.status(404).json({
         ok: false,
-        error: "MOBILE_NOT_ALLOWED",
-        message: "This mobile number is not authorized. Please contact admin.",
+        error: "EVENT_NOT_FOUND",
+        message: "This event does not exist.",
       });
+    }
+
+    const privRaw = eventRow.is_private;
+    const isPrivate =
+      privRaw === true ||
+      privRaw === 1 ||
+      Number(privRaw) === 1 ||
+      String(privRaw) === "1";
+
+    if (isPrivate) {
+      const mobileDigits = String(mobile).replace(/\D/g, "");
+      const mobileLast10 =
+        mobileDigits.length > 10 ? mobileDigits.slice(-10) : mobileDigits;
+
+      const [allowedRows] = await db.execute<RowDataPacket[]>(
+        `SELECT id FROM allowed_mobiles
+         WHERE event_id = :event_id
+           AND (
+             mobile = :mobile
+             OR mobile = :mobile_last10
+             OR RIGHT(mobile, 10) = :mobile_last10
+           )
+         LIMIT 1`,
+        {
+          event_id: effectiveEventId,
+          mobile: mobileDigits,
+          mobile_last10: mobileLast10,
+        },
+      );
+      if (!allowedRows[0]) {
+        return res.status(403).json({
+          ok: false,
+          error: "MOBILE_NOT_ALLOWED",
+          message: "This mobile number is not authorized. Please contact admin.",
+        });
+      }
     }
 
     const membershipNo = membership_number ? Number(membership_number) : null;
@@ -952,6 +1341,27 @@ app.post("/api/votes", async (req, res) => {
       return res.status(400).json({ ok: false, error: "NOMINEE_CATEGORY_MISMATCH" });
     }
 
+    const [catEventRows] = await db.execute<RowDataPacket[]>(
+      `SELECT c.event_id, e.start_time, e.end_time
+       FROM category c
+       LEFT JOIN events e ON e.event_id = c.event_id
+       WHERE c.category_id = :catid
+       LIMIT 1`,
+      { catid },
+    );
+    const catEv = catEventRows[0];
+    if (
+      catEv &&
+      catEv.event_id != null &&
+      !isWithinEventVotingWindow(catEv.start_time, catEv.end_time, new Date())
+    ) {
+      return res.status(403).json({
+        ok: false,
+        error: "VOTING_WINDOW_CLOSED",
+        message: "Voting is only open during the scheduled window for this event.",
+      });
+    }
+
     // Has this user already voted in this category?
     const [existingRows] = await db.execute<RowDataPacket[]>(
       `SELECT id, nominee_id
@@ -1016,7 +1426,46 @@ app.post("/api/votes", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`API listening on http://localhost:${PORT}`);
-  console.log(`CORS origin: ${CORS_ORIGIN}`);
-});
+/** Adds `events.is_private` when missing (older DBs); matches `/api/public/events` and registration checks. */
+async function ensureEventsIsPrivateColumn(): Promise<void> {
+  try {
+    await db.execute(
+      `ALTER TABLE events ADD COLUMN is_private tinyint(1) NOT NULL DEFAULT 0`,
+    );
+  } catch (e: unknown) {
+    const err = e as { errno?: number; code?: string; message?: string };
+    if (err.errno === 1060 || err.code === "ER_DUP_FIELDNAME") return;
+    if (/duplicate column name/i.test(String(err.message ?? ""))) return;
+    throw e;
+  }
+}
+
+/** Adds voting window columns when missing. */
+async function ensureEventsVotingWindowColumns(): Promise<void> {
+  for (const sql of [
+    `ALTER TABLE events ADD COLUMN start_time DATETIME DEFAULT NULL`,
+    `ALTER TABLE events ADD COLUMN end_time DATETIME DEFAULT NULL`,
+  ]) {
+    try {
+      await db.execute(sql);
+    } catch (e: unknown) {
+      const err = e as { errno?: number; code?: string; message?: string };
+      if (err.errno === 1060 || err.code === "ER_DUP_FIELDNAME") continue;
+      if (/duplicate column name/i.test(String(err.message ?? ""))) continue;
+      throw e;
+    }
+  }
+}
+
+ensureEventsIsPrivateColumn()
+  .then(() => ensureEventsVotingWindowColumns())
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`API listening on http://localhost:${PORT}`);
+      console.log(`CORS origin: ${CORS_ORIGIN}`);
+    });
+  })
+  .catch((e) => {
+    console.error("ensureEventsSchema failed", e);
+    process.exit(1);
+  });

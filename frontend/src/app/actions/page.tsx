@@ -7,6 +7,7 @@ import { setYlfCategory, setYlfGraph, setYlfPage, setYlfTimer } from "@/lib/fire
 import { adminAuthHeader, readAdminToken } from "../_lib/adminAuthSession";
 import { withBasePath } from "../_lib/basePath";
 import { resolveEventBannerUrl, resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
+import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 
 type ScreenKey = "HOME" | "CATEGORY" | "WINNER" | "QR";
 type AdminScreenKey = ScreenKey | "ADMIN";
@@ -321,7 +322,7 @@ function LedDashboard({
       ...p,
       [categoryId]: { durationSec: duration, remainingSec: duration, running: false },
     }));
-    void setYlfTimer({
+    void setYlfTimer(eventId, {
       categoryId,
       running: false,
       durationSec: duration,
@@ -341,7 +342,7 @@ function LedDashboard({
       const nextRunning = current.remainingSec <= 0 ? true : !current.running;
       const nextRemaining = current.remainingSec <= 0 ? current.durationSec : current.remainingSec;
       const endsAtMs = nextRunning ? nowMs() + nextRemaining * 1000 : 0;
-      void setYlfTimer({
+      void setYlfTimer(eventId, {
         categoryId,
         running: nextRunning,
         durationSec: current.durationSec,
@@ -355,7 +356,7 @@ function LedDashboard({
     setTimers((p) => {
       const current = p[categoryId];
       if (!current) return p;
-      void setYlfTimer({
+      void setYlfTimer(eventId, {
         categoryId,
         running: false,
         durationSec: current.durationSec,
@@ -377,17 +378,13 @@ function LedDashboard({
   const goToScreen = React.useCallback((next: ScreenKey) => {
     setScreen(next);
     if (next === "HOME") {
-      //console.log(`[UI] Screen button -> HOME; pushing ylf/page="home"`);
-      void setYlfPage("home");
+      void setYlfPage(eventId, "home");
     } else if (next === "QR") {
-      void setYlfPage("qr");
+      void setYlfPage(eventId, "qr");
     } else if (next === "WINNER") {
-      //console.log(`[UI] Screen button -> WINNER; pushing ylf/page="winner"`);
-      void setYlfPage("winner");
-    } else {
-     // console.log(`[UI] Screen button -> CATEGORY (no Firebase write yet — waits for a specific category click)`);
+      void setYlfPage(eventId, "winner");
     }
-  }, []);
+  }, [eventId]);
 
   const [adminCategories, setAdminCategories] = React.useState<Category[]>([]);
   const [adminLoading, setAdminLoading] = React.useState(false);
@@ -678,7 +675,7 @@ function LedDashboard({
       }
 
       setGraphActiveCategoryId(null);
-      void setYlfCategory({
+      void setYlfCategory(eventId, {
         id: c.category_id,
         name: c.name,
         nominees: nominees.map((n) => ({
@@ -689,7 +686,7 @@ function LedDashboard({
         })),
       });
     },
-    [fetchAllNominees, nomineesByCategory],
+    [eventId, fetchAllNominees, nomineesByCategory],
   );
 
   return (
@@ -822,7 +819,7 @@ function LedDashboard({
                           console.log(
                             `[UI] Graph button -> category id=${selectedCategory.category_id}, nominees=${selectedNominees.length}`,
                           );
-                          void setYlfGraph({
+                          void setYlfGraph(eventId, {
                             id: selectedCategory.category_id,
                             name: selectedCategory.name,
                             nominees: selectedNominees.map((n) => ({
@@ -856,7 +853,7 @@ function LedDashboard({
                             console.log(
                               `[UI] Graph close -> reverting to category id=${selectedCategory.category_id}`,
                             );
-                            void setYlfCategory({
+                            void setYlfCategory(eventId, {
                               id: selectedCategory.category_id,
                               name: selectedCategory.name,
                               nominees: selectedNominees.map((n) => ({
@@ -1024,9 +1021,14 @@ function LedDashboard({
                 </div>
                 <div className="panelMeta">Link includes your event</div>
               </div>
-              <a className="linkBtn" href={withBasePath(`/register?eventId=${eventId}`)}>
-                Open registration page
-              </a>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                <a className="linkBtn" href={withBasePath(`/register?eventId=${eventId}`)} target="_blank" rel="noopener noreferrer">
+                  Open registration page
+                </a>
+                <a className="linkBtn" href={withBasePath(`/screen?eventId=${eventId}`)} target="_blank" rel="noopener noreferrer">
+                  Open LED
+                </a>
+              </div>
             </div>
 
             {adminError ? (
@@ -1491,17 +1493,11 @@ function LedDashboard({
   );
 }
 
-function normalizeApiBase(raw: string) {
-  const root = raw.replace(/\/+$/, "");
-  return /\/api$/i.test(root) ? root : `${root}/api`;
-}
-
 function ActionsGate() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.0.81.7/api";
-  const apiBase = normalizeApiBase(rawApiBase);
-  const apiOrigin = apiBase.replace(/\/api$/i, "");
+  const apiBase = getPublicApiBase();
+  const apiOrigin = getUploadsOrigin();
 
   const eventIdRaw = searchParams.get("eventId");
   const [gateState, setGateState] = React.useState<"checking" | "ok" | "fail">("checking");

@@ -28,18 +28,24 @@ export function getRtdb(): Database {
   return db;
 }
 
+/** Per-event LED state: `ylf/events/{eventId}/...` */
+export function ylfEventPath(eventId: number, subpath?: string): string {
+  const base = `ylf/events/${eventId}`;
+  return subpath ? `${base}/${subpath}` : base;
+}
+
 export type YlfPage = "home" | "category" | "winner" | "graph" | "qr";
 
-export async function setYlfPage(page: YlfPage): Promise<void> {
+export async function setYlfPage(eventId: number, page: YlfPage): Promise<void> {
   const start = Date.now();
   try {
     const database = getRtdb();
-    await set(ref(database, "ylf/page"), page);
+    await set(ref(database, ylfEventPath(eventId, "page")), page);
     console.log(
-      `[FIREBASE] ylf/page set to "${page}" in ${Date.now() - start}ms`,
+      `[FIREBASE] ${ylfEventPath(eventId, "page")} set to "${page}" in ${Date.now() - start}ms`,
     );
   } catch (err) {
-    console.error(`[FIREBASE] Failed to set ylf/page="${page}":`, err);
+    console.error(`[FIREBASE] Failed to set page="${page}" for event ${eventId}:`, err);
     throw err;
   }
 }
@@ -66,30 +72,40 @@ export type YlfState = {
   };
 };
 
-export function subscribeYlf(callback: (state: YlfState | null) => void): () => void {
+export function subscribeYlf(
+  eventId: number,
+  callback: (state: YlfState | null) => void,
+): () => void {
   const database = getRtdb();
-  const r = ref(database, "ylf");
+  const r = ref(database, ylfEventPath(eventId));
   const unsubscribe = onValue(
     r,
     (snap) => {
       const value = snap.val() as YlfState | null;
-      console.log("[FIREBASE] ylf snapshot ->", value);
+      console.log(`[FIREBASE] event ${eventId} snapshot ->`, value);
       callback(value);
     },
     (err) => {
-      console.error("[FIREBASE] subscribeYlf error:", err);
+      console.error(`[FIREBASE] subscribeYlf event ${eventId} error:`, err);
       callback(null);
     },
   );
   return unsubscribe;
 }
 
-export async function setYlfNomineeVotes(params: { nomineeId: number; votes: number }): Promise<void> {
+export async function setYlfNomineeVotes(
+  eventId: number,
+  params: { nomineeId: number; votes: number },
+): Promise<void> {
   const database = getRtdb();
-  await set(ref(database, `ylf/category/nominees/${params.nomineeId}/votes`), params.votes);
+  await set(
+    ref(database, ylfEventPath(eventId, `category/nominees/${params.nomineeId}/votes`)),
+    params.votes,
+  );
 }
 
 async function writeYlfCategory(
+  eventId: number,
   page: Extract<YlfPage, "category" | "graph">,
   category: { id: number; name: string; nominees: YlfNominee[] },
 ): Promise<void> {
@@ -100,7 +116,7 @@ async function writeYlfCategory(
       acc[String(n.id)] = n;
       return acc;
     }, {});
-    await set(ref(database, "ylf"), {
+    await set(ref(database, ylfEventPath(eventId)), {
       page,
       category: {
         id: category.id,
@@ -109,45 +125,54 @@ async function writeYlfCategory(
       },
     });
     console.log(
-      `[FIREBASE] ylf set -> page="${page}", category=${category.id} "${category.name}", nominees=${category.nominees.length} in ${Date.now() - start}ms`,
+      `[FIREBASE] event ${eventId} -> page="${page}", category=${category.id} "${category.name}", nominees=${category.nominees.length} in ${Date.now() - start}ms`,
     );
   } catch (err) {
-    console.error(`[FIREBASE] Failed to set ylf page="${page}" category=${category.id}:`, err);
+    console.error(`[FIREBASE] Failed to set event ${eventId} page="${page}" category=${category.id}:`, err);
     throw err;
   }
 }
 
-export function setYlfCategory(category: {
-  id: number;
-  name: string;
-  nominees: YlfNominee[];
-}): Promise<void> {
-  return writeYlfCategory("category", category);
+export function setYlfCategory(
+  eventId: number,
+  category: {
+    id: number;
+    name: string;
+    nominees: YlfNominee[];
+  },
+): Promise<void> {
+  return writeYlfCategory(eventId, "category", category);
 }
 
-export function setYlfGraph(category: {
-  id: number;
-  name: string;
-  nominees: YlfNominee[];
-}): Promise<void> {
-  return writeYlfCategory("graph", category);
+export function setYlfGraph(
+  eventId: number,
+  category: {
+    id: number;
+    name: string;
+    nominees: YlfNominee[];
+  },
+): Promise<void> {
+  return writeYlfCategory(eventId, "graph", category);
 }
 
-export async function setYlfTimer(timer: {
-  categoryId: number;
-  running: boolean;
-  durationSec: number;
-  endsAtMs: number;
-}): Promise<void> {
+export async function setYlfTimer(
+  eventId: number,
+  timer: {
+    categoryId: number;
+    running: boolean;
+    durationSec: number;
+    endsAtMs: number;
+  },
+): Promise<void> {
   const start = Date.now();
   try {
     const database = getRtdb();
-    await set(ref(database, "ylf/timer"), timer);
+    await set(ref(database, ylfEventPath(eventId, "timer")), timer);
     console.log(
-      `[FIREBASE] ylf/timer set -> categoryId=${timer.categoryId}, running=${timer.running}, durationSec=${timer.durationSec} in ${Date.now() - start}ms`,
+      `[FIREBASE] event ${eventId} timer set -> categoryId=${timer.categoryId}, running=${timer.running} in ${Date.now() - start}ms`,
     );
   } catch (err) {
-    console.error("[FIREBASE] Failed to set ylf/timer:", err);
+    console.error(`[FIREBASE] Failed to set timer for event ${eventId}:`, err);
     throw err;
   }
 }
