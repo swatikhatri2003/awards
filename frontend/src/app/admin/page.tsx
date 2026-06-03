@@ -6,6 +6,7 @@ import { withBasePath } from "../_lib/basePath";
 import {
   adminAuthHeader,
   clearAdminSession,
+  isAdminSessionValid,
   readAdminToken,
   writeAdminSession,
 } from "../_lib/adminAuthSession";
@@ -657,18 +658,53 @@ function AdminContent() {
     if (!token) return;
     const r = await fetch(`${apiBase}/admin/events`, { headers: { ...adminAuthHeader(token) } });
     const data = await r.json().catch(() => null);
-    if (!r.ok) { if (r.status === 401) clearAdminSession(); return; }
+    if (!r.ok) {
+      if (r.status === 401) clearAdminSession();
+      return;
+    }
     setEvents(Array.isArray(data?.events) ? data.events : []);
   }, [apiBase]);
 
   React.useEffect(() => {
+    let cancelled = false;
     const token = readAdminToken();
-    if (!token) { setView("auth"); return; }
+    if (!token) {
+      setView("auth");
+      return;
+    }
     void (async () => {
-      const r = await fetch(`${apiBase}/admin/me`, { headers: { ...adminAuthHeader(token) } });
-      if (r.ok) { setView("dashboard"); await loadEvents(); }
-      else { clearAdminSession(); setView("auth"); }
+      try {
+        const r = await fetch(`${apiBase}/admin/me`, { headers: { ...adminAuthHeader(token) } });
+        if (cancelled) return;
+        if (r.ok) {
+          setView("dashboard");
+          await loadEvents();
+          return;
+        }
+        if (r.status === 401) {
+          clearAdminSession();
+          setView("auth");
+          return;
+        }
+        if (isAdminSessionValid()) {
+          setView("dashboard");
+          await loadEvents();
+        } else {
+          setView("auth");
+        }
+      } catch {
+        if (cancelled) return;
+        if (isAdminSessionValid()) {
+          setView("dashboard");
+          await loadEvents();
+        } else {
+          setView("auth");
+        }
+      }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [apiBase, loadEvents]);
 
   const navigateDashboard = React.useCallback(
