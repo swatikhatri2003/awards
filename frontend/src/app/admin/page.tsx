@@ -132,6 +132,7 @@ const css = `
     position: relative;
     overflow: hidden;
   }
+  .auth-card-wide { max-width: 520px; }
   .auth-card::before {
     content: '';
     position: absolute;
@@ -638,6 +639,13 @@ function AdminContent() {
   const [confirmPassword, setConfirmPassword] = React.useState("");
   const [otp, setOtp] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
+  const [regName, setRegName] = React.useState("");
+  const [regOrganisation, setRegOrganisation] = React.useState("");
+  const [regMobile, setRegMobile] = React.useState("");
+  const [regFullAddress, setRegFullAddress] = React.useState("");
+  const [regLogoName, setRegLogoName] = React.useState("");
+  const [regLogoPreviewUrl, setRegLogoPreviewUrl] = React.useState<string | null>(null);
+  const [regLogoUploading, setRegLogoUploading] = React.useState(false);
 
   const [events, setEvents] = React.useState<ApiEvent[]>([]);
   const [createTitle, setCreateTitle] = React.useState("");
@@ -782,11 +790,77 @@ function AdminContent() {
     return null;
   }
 
+  function resetRegisterFields() {
+    setRegName("");
+    setRegOrganisation("");
+    setRegMobile("");
+    setRegFullAddress("");
+    setRegLogoName("");
+    setRegLogoPreviewUrl(prev => {
+      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }
+
   function openRegister() {
     setError(null);
     setConfirmPassword("");
     setOtp("");
+    resetRegisterFields();
     setView("register");
+  }
+
+  function validateRegisterProfile(): string | null {
+    const name = regName.trim();
+    if (!name) return "Your name is required.";
+    if (name.length > 75) return "Name must be at most 75 characters.";
+    const org = regOrganisation.trim();
+    if (!org) return "Organisation name is required.";
+    if (org.length > 100) return "Organisation name must be at most 100 characters.";
+    const mobile = regMobile.trim().replace(/\s/g, "");
+    if (!/^\d{10,12}$/.test(mobile)) return "Mobile must be 10–12 digits (numbers only).";
+    const addr = regFullAddress.trim();
+    if (!addr) return "Full address is required.";
+    if (addr.length > 300) return "Address must be at most 300 characters.";
+    return null;
+  }
+
+  function buildRegisterBody() {
+    const mobile = regMobile.trim().replace(/\s/g, "");
+    const body: Record<string, string> = {
+      email: email.trim().toLowerCase(),
+      password,
+      name: regName.trim(),
+      organisation_name: regOrganisation.trim(),
+      mobile,
+      full_address: regFullAddress.trim(),
+    };
+    const logo = regLogoName.trim();
+    if (logo) body.logo = logo;
+    return body;
+  }
+
+  async function uploadRegisterLogo(file: File) {
+    setRegLogoUploading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("photo", file);
+      const r = await fetch(`${apiOrigin}/api/uploads/admin-logo`, { method: "POST", body: fd });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(data?.error || "UPLOAD_FAILED");
+      const name = String(data?.filename || "").trim();
+      if (!name) throw new Error("UPLOAD_FAILED");
+      setRegLogoName(name);
+      setRegLogoPreviewUrl(prev => {
+        if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+        return `${apiOrigin}/uploads/admin/${encodeURIComponent(name)}`;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "UPLOAD_FAILED");
+    } finally {
+      setRegLogoUploading(false);
+    }
   }
 
   async function submitRegister(e: React.FormEvent) {
@@ -802,11 +876,18 @@ function AdminContent() {
       setLoading(false);
       return;
     }
+    const profileErr = validateRegisterProfile();
+    if (profileErr) { setError(profileErr); setLoading(false); return; }
+    if (regLogoUploading) {
+      setError("Please wait for the logo upload to finish.");
+      setLoading(false);
+      return;
+    }
     try {
       const r = await fetch(`${apiBase}/admin/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+        body: JSON.stringify(buildRegisterBody()),
       });
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.message || data?.error || "REGISTER_FAILED");
@@ -859,8 +940,9 @@ function AdminContent() {
     setInfo(null);
     const emailErr = validateEmail(email);
     const pwErr = validatePassword(password);
-    if (emailErr || pwErr) {
-      setError(emailErr || pwErr || "Enter email and password on the register screen first.");
+    const profileErr = validateRegisterProfile();
+    if (emailErr || pwErr || profileErr) {
+      setError(emailErr || pwErr || profileErr || "Complete the registration form first.");
       setLoading(false);
       return;
     }
@@ -868,7 +950,7 @@ function AdminContent() {
       const r = await fetch(`${apiBase}/admin/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+        body: JSON.stringify(buildRegisterBody()),
       });
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.message || data?.error || "RESEND_FAILED");
@@ -1375,17 +1457,97 @@ function AdminContent() {
       <div className="page">
         <style>{css}</style>
         <div className="auth-wrap">
-          <div className="auth-card">
+          <div className="auth-card auth-card-wide">
             <div className="auth-logo">
               <div className="auth-logo-icon"><BoltIcon /></div>
               <span className="auth-logo-text">Event Admin</span>
             </div>
             <div className="auth-title">Create account</div>
-            <div className="auth-subtitle">Register with your email. We will send a one-time code to verify it.</div>
+            <div className="auth-subtitle">Fill in your details. We will email a one-time code to verify your account.</div>
             {error && <div className="error-box">{error}</div>}
             <form onSubmit={submitRegister}>
               <div className="field">
-                <div className="label">Email</div>
+                <div className="label">Your name *</div>
+                <input
+                  className="input"
+                  required
+                  value={regName}
+                  onChange={e => setRegName(e.target.value)}
+                  placeholder="Full name"
+                  maxLength={75}
+                  autoComplete="name"
+                />
+              </div>
+              <div className="field">
+                <div className="label">Organisation name *</div>
+                <input
+                  className="input"
+                  required
+                  value={regOrganisation}
+                  onChange={e => setRegOrganisation(e.target.value)}
+                  placeholder="Company or organisation"
+                  maxLength={100}
+                  autoComplete="organization"
+                />
+              </div>
+              <div className="field">
+                <div className="label">Mobile *</div>
+                <input
+                  className="input"
+                  type="tel"
+                  required
+                  value={regMobile}
+                  onChange={e => setRegMobile(e.target.value.replace(/[^\d\s]/g, "").slice(0, 12))}
+                  placeholder="10–12 digit mobile number"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                />
+              </div>
+              <div className="field">
+                <div className="label">Full address *</div>
+                <textarea
+                  className="input"
+                  required
+                  value={regFullAddress}
+                  onChange={e => setRegFullAddress(e.target.value)}
+                  placeholder="Street, city, state, PIN"
+                  maxLength={300}
+                  rows={2}
+                  autoComplete="street-address"
+                />
+              </div>
+              <div className="field">
+                <div className="label">Organisation logo (optional)</div>
+                <input
+                  className="input"
+                  type="file"
+                  accept="image/*"
+                  disabled={loading || regLogoUploading}
+                  onChange={e => {
+                    const f = e.currentTarget.files?.[0];
+                    if (f) {
+                      setRegLogoPreviewUrl(prev => {
+                        if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+                        return URL.createObjectURL(f);
+                      });
+                      setRegLogoName("");
+                      void uploadRegisterLogo(f);
+                    }
+                    e.currentTarget.value = "";
+                  }}
+                />
+                {regLogoPreviewUrl ? (
+                  <div className="banner-preview" style={{ marginTop: 10 }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={regLogoPreviewUrl} alt="" style={{ height: 80, objectFit: "contain", background: "#f8fafc" }} />
+                    <span className={`banner-badge ${regLogoUploading ? "badge-busy" : regLogoName ? "badge-ok" : "badge-preview"}`}>
+                      {regLogoUploading ? "Uploading…" : regLogoName ? "Logo ready" : "Preview"}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+              <div className="field">
+                <div className="label">Email *</div>
                 <input
                   className="input"
                   type="email"
@@ -1397,7 +1559,7 @@ function AdminContent() {
                 />
               </div>
               <div className="field">
-                <div className="label">Password</div>
+                <div className="label">Password *</div>
                 <input
                   className="input"
                   type="password"
@@ -1411,7 +1573,7 @@ function AdminContent() {
                 />
               </div>
               <div className="field">
-                <div className="label">Confirm password</div>
+                <div className="label">Confirm password *</div>
                 <input
                   className="input"
                   type="password"
@@ -1424,7 +1586,7 @@ function AdminContent() {
                   maxLength={72}
                 />
               </div>
-              <button type="submit" className="btn btn-full" disabled={loading}>
+              <button type="submit" className="btn btn-full" disabled={loading || regLogoUploading}>
                 {loading ? "Sending OTP…" : "Send OTP"}
               </button>
             </form>

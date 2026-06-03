@@ -35,8 +35,10 @@ app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 const uploadRoot = path.join(process.cwd(), "uploads");
 const nomineeUploadDir = path.join(uploadRoot, "nominee");
 const eventUploadDir = path.join(uploadRoot, "event");
+const adminUploadDir = path.join(uploadRoot, "admin");
 fs.mkdirSync(nomineeUploadDir, { recursive: true });
 fs.mkdirSync(eventUploadDir, { recursive: true });
+fs.mkdirSync(adminUploadDir, { recursive: true });
 
 /** Persist only the file name in MySQL (never full paths or `/uploads/...` segments). */
 function storedUploadBasename(raw: string | null | undefined): string {
@@ -103,6 +105,29 @@ app.post("/api/uploads/event-photo", eventUpload.single("photo"), (req, res) => 
   });
 });
 
+const adminLogoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, adminUploadDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || "").slice(0, 20) || ".jpg";
+      const safeExt = /^[.\w-]+$/.test(ext) ? ext : ".jpg";
+      cb(null, `${crypto.randomUUID()}${safeExt}`);
+    },
+  }),
+  limits: { fileSize: 4 * 1024 * 1024 },
+  fileFilter: (_req, file, cb: multer.FileFilterCallback) => {
+    const ok = /^image\//i.test(file.mimetype || "");
+    if (!ok) return cb(new Error("ONLY_IMAGES_ALLOWED"));
+    return cb(null, true);
+  },
+});
+
+app.post("/api/uploads/admin-logo", adminLogoUpload.single("photo"), (req, res) => {
+  const file = req.file;
+  if (!file) return res.status(400).json({ ok: false, error: "NO_FILE" });
+  return res.json({ ok: true, filename: file.filename });
+});
+
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
@@ -113,18 +138,37 @@ function getBearerToken(req: express.Request): string | undefined {
   return m?.[1]?.trim();
 }
 
-async function loadAdminFromRequest(req: express.Request): Promise<{ adminId: number; email: string } | null> {
+type AdminProfile = {
+  adminId: number;
+  email: string;
+  name: string;
+  organisation_name: string;
+  mobile: string;
+  logo: string | null;
+  full_address: string;
+};
+
+async function loadAdminFromRequest(req: express.Request): Promise<AdminProfile | null> {
   const token = getBearerToken(req);
   const payload = verifyAdminToken(token);
   if (!payload) return null;
   const [rows] = await db.execute<RowDataPacket[]>(
-    `SELECT admin_id, email FROM event_admin WHERE admin_id = :id LIMIT 1`,
+    `SELECT admin_id, email, name, organisation_name, mobile, logo, full_address
+     FROM event_admin WHERE admin_id = :id LIMIT 1`,
     { id: payload.adminId },
   );
   const row = rows[0];
   if (!row) return null;
   if (String(row.email).toLowerCase() !== String(payload.email).toLowerCase()) return null;
-  return { adminId: Number(row.admin_id), email: String(row.email) };
+  return {
+    adminId: Number(row.admin_id),
+    email: String(row.email),
+    name: String(row.name ?? ""),
+    organisation_name: String(row.organisation_name ?? ""),
+    mobile: String(row.mobile ?? ""),
+    logo: row.logo != null && String(row.logo).trim() ? String(row.logo) : null,
+    full_address: String(row.full_address ?? ""),
+  };
 }
 
 async function assertAdminOwnsEvent(adminId: number, eventId: number): Promise<boolean> {
@@ -161,6 +205,14 @@ const adminResetSchema = z.object({
 const adminRegisterSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(72),
+  name: z.string().trim().min(1, "Name is required.").max(75),
+  organisation_name: z.string().trim().min(1, "Organisation name is required.").max(100),
+  mobile: z
+    .string()
+    .trim()
+    .regex(/^\d{10,12}$/, "Mobile must be 10–12 digits (numbers only)."),
+  logo: z.string().trim().max(50).optional().nullable(),
+  full_address: z.string().trim().min(1, "Address is required.").max(300),
 });
 
 const adminVerifyRegistrationSchema = z.object({
@@ -248,16 +300,31 @@ function isWithinEventVotingWindow(start: unknown, end: unknown, now: Date): boo
 app.post("/api/admin/auth/register", async (req, res) => {
   const parsed = adminRegisterSchema.safeParse(req.body);
   if (!parsed.success) {
+    const msg = parsed.error.issues[0]?.message || "Please check all registration fields.";
     return res.status(400).json({
       ok: false,
       error: "INVALID_INPUT",
-      message: "Valid email and password (8+ characters) are required.",
+      message: msg,
     });
   }
   const email = parsed.data.email.trim().toLowerCase();
   const password = parsed.data.password;
+  const name = parsed.data.name.trim();
+  const organisation_name = parsed.data.organisation_name.trim();
+  const mobile = parsed.data.mobile.trim();
+  const full_address = parsed.data.full_address.trim();
+  const logoRaw = parsed.data.logo;
+  const logo =
+    typeof logoRaw === "string" && logoRaw.trim() ? storedUploadBasename(logoRaw) || null : null;
   const { otp, expires } = adminRegistrationOtp();
   const pwHash = hashPassword(password);
+  const profileParams = {
+    name,
+    organisation_name,
+    mobile,
+    logo,
+    full_address,
+  };
   try {
     const [rows] = await db.execute<RowDataPacket[]>(
       `SELECT admin_id, email_verified FROM event_admin WHERE email = :email LIMIT 1`,
@@ -277,14 +344,16 @@ app.post("/api/admin/auth/register", async (req, res) => {
         });
       }
       await db.execute(
-        `UPDATE event_admin SET password = :pw, otp = :otp, otp_expires_at = :exp, email_verified = 0 WHERE email = :email`,
-        { pw: pwHash, otp, exp: expires, email },
+        `UPDATE event_admin SET password = :pw, otp = :otp, otp_expires_at = :exp, email_verified = 0,
+         name = :name, organisation_name = :organisation_name, mobile = :mobile, logo = :logo, full_address = :full_address
+         WHERE email = :email`,
+        { pw: pwHash, otp, exp: expires, email, ...profileParams },
       );
     } else {
       await db.execute(
-        `INSERT INTO event_admin (email, password, otp, otp_expires_at, email_verified)
-         VALUES (:email, :pw, :otp, :exp, 0)`,
-        { email, pw: pwHash, otp, exp: expires },
+        `INSERT INTO event_admin (email, password, otp, otp_expires_at, email_verified, name, organisation_name, mobile, logo, full_address)
+         VALUES (:email, :pw, :otp, :exp, 0, :name, :organisation_name, :mobile, :logo, :full_address)`,
+        { email, pw: pwHash, otp, exp: expires, ...profileParams },
       );
     }
     try {
@@ -360,7 +429,25 @@ app.post("/api/admin/auth/verify-registration", async (req, res) => {
     );
     const adminId = Number(row.admin_id);
     const token = signAdminToken({ adminId, email });
-    return res.json({ ok: true, token, admin: { adminId, email } });
+    const [profileRows] = await db.execute<RowDataPacket[]>(
+      `SELECT admin_id, email, name, organisation_name, mobile, logo, full_address
+       FROM event_admin WHERE admin_id = :id LIMIT 1`,
+      { id: adminId },
+    );
+    const profile = profileRows[0];
+    return res.json({
+      ok: true,
+      token,
+      admin: {
+        adminId,
+        email,
+        name: String(profile?.name ?? ""),
+        organisation_name: String(profile?.organisation_name ?? ""),
+        mobile: String(profile?.mobile ?? ""),
+        logo: profile?.logo != null && String(profile.logo).trim() ? String(profile.logo) : null,
+        full_address: String(profile?.full_address ?? ""),
+      },
+    });
   } catch (e) {
     console.error("admin verify-registration error", e);
     return res.status(500).json({ ok: false, error: "DB_ERROR" });
@@ -408,10 +495,24 @@ app.post("/api/admin/auth/sign-in", async (req, res) => {
     }
     const adminId = Number(existing.admin_id);
     const token = signAdminToken({ adminId, email });
+    const [profileRows] = await db.execute<RowDataPacket[]>(
+      `SELECT admin_id, email, name, organisation_name, mobile, logo, full_address
+       FROM event_admin WHERE admin_id = :id LIMIT 1`,
+      { id: adminId },
+    );
+    const profile = profileRows[0];
     return res.json({
       ok: true,
       token,
-      admin: { adminId, email },
+      admin: {
+        adminId,
+        email,
+        name: String(profile?.name ?? ""),
+        organisation_name: String(profile?.organisation_name ?? ""),
+        mobile: String(profile?.mobile ?? ""),
+        logo: profile?.logo != null && String(profile.logo).trim() ? String(profile.logo) : null,
+        full_address: String(profile?.full_address ?? ""),
+      },
     });
   } catch (e) {
     console.error("admin sign-in error", e);
@@ -488,8 +589,27 @@ app.post("/api/admin/auth/reset-password", async (req, res) => {
       `UPDATE event_admin SET password = :pw, otp = NULL, otp_expires_at = NULL WHERE email = :email`,
       { pw: pwHash, email },
     );
-    const token = signAdminToken({ adminId: Number(row.admin_id), email });
-    return res.json({ ok: true, token, admin: { adminId: Number(row.admin_id), email } });
+    const adminId = Number(row.admin_id);
+    const token = signAdminToken({ adminId, email });
+    const [profileRows] = await db.execute<RowDataPacket[]>(
+      `SELECT admin_id, email, name, organisation_name, mobile, logo, full_address
+       FROM event_admin WHERE admin_id = :id LIMIT 1`,
+      { id: adminId },
+    );
+    const profile = profileRows[0];
+    return res.json({
+      ok: true,
+      token,
+      admin: {
+        adminId,
+        email,
+        name: String(profile?.name ?? ""),
+        organisation_name: String(profile?.organisation_name ?? ""),
+        mobile: String(profile?.mobile ?? ""),
+        logo: profile?.logo != null && String(profile.logo).trim() ? String(profile.logo) : null,
+        full_address: String(profile?.full_address ?? ""),
+      },
+    });
   } catch (e) {
     console.error("admin reset-password error", e);
     return res.status(500).json({ ok: false, error: "DB_ERROR" });

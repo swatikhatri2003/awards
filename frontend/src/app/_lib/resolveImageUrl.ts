@@ -27,6 +27,17 @@ export function resolveNomineePhotoUrl(apiOrigin: string, photo?: string | null)
   return `${cdn}/${safe}`;
 }
 
+/** Admin / organisation logo under `/uploads/admin/`. */
+export function resolveAdminLogoUrl(apiOrigin: string, logo?: string | null): string {
+  const p = (logo || "").trim();
+  if (!p) return "";
+  if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
+  const last = extractBasename(p);
+  if (!last) return "";
+  const base = apiOrigin.replace(/\/+$/, "");
+  return `${base}/uploads/admin/${encodeURIComponent(last)}`;
+}
+
 /** Event banner: served under `/uploads/event/` on the API host, or any absolute http(s) URL. */
 export function resolveEventBannerUrl(apiOrigin: string, image?: string | null): string {
   const p = (image || "").trim();
