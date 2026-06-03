@@ -424,6 +424,39 @@ const css = `
   /* ── Event list ── */
   .event-list { display: flex; flex-direction: column; gap: 10px; }
 
+  .event-card-wrap {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .event-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    flex-shrink: 0;
+    align-self: center;
+    padding: 0;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .event-icon-btn:hover:not(:disabled) { border-color: var(--border-hover); background: var(--surface3); }
+  .event-icon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .event-icon-btn--danger {
+    color: var(--danger);
+    background: var(--danger-dim);
+    border-color: rgba(220, 38, 38, 0.25);
+  }
+  .event-icon-btn--danger:hover:not(:disabled) {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+  }
+
   .event-card {
     background: var(--surface2);
     border: 1px solid var(--border);
@@ -1114,6 +1147,43 @@ function AdminContent() {
     return `${window.location.origin}${withBasePath(`/register?eventId=${eventId}`)}`;
   }
 
+  function IconTrash(props: React.SVGProps<SVGSVGElement>) {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden {...props}>
+        <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M10 11v6M14 11v6" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  async function deleteEvent(ev: ApiEvent) {
+    const token = readAdminToken();
+    if (!token) return;
+    const title = (ev.title || "").trim() || "Untitled";
+    if (!window.confirm(`Delete "${title}" and all its categories, nominees, and votes? This cannot be undone.`)) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch(`${apiBase}/admin/events/${ev.event_id}`, {
+        method: "DELETE",
+        headers: { ...adminAuthHeader(token) },
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(data?.message || data?.error || "DELETE_EVENT_FAILED");
+      if (selectedEventId === ev.event_id) {
+        setSelectedEventId(null);
+        navigateDashboard("list");
+      }
+      if (editingEventId === ev.event_id) resetEventForm();
+      await loadEvents();
+      setInfo(`Deleted "${title}".`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "DELETE_EVENT_FAILED");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   /* ─── Dashboard view ─── */
   if (view === "dashboard") {
     const token = readAdminToken();
@@ -1216,31 +1286,43 @@ function AdminContent() {
               const desc = (ev.description || "").trim();
               const imgSrc = resolveEventBannerUrl(apiOrigin, ev.image);
               return (
-                <button
-                  key={ev.event_id}
-                  type="button"
-                  className="event-card event-card-clickable"
-                  onClick={() => navigateDashboard("detail", ev.event_id)}
-                >
-                  <div className="event-card-row">
-                    {imgSrc ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={imgSrc} alt="" className="event-card-thumb" />
-                    ) : (
-                      <div className="event-card-thumb-ph" aria-hidden>{title.slice(0, 2).toUpperCase()}</div>
-                    )}
-                    <div className="event-card-main">
-                      <div className="event-header" style={{ marginBottom: desc ? 4 : 0 }}>
-                        <span className="event-title">{title}</span>
-                        <span className={`event-badge ${ev.is_private === true || ev.is_private === 1 ? "badge-private" : "badge-public"}`}>
-                          {ev.is_private === true || ev.is_private === 1 ? "Private" : "Public"}
-                        </span>
+                <div key={ev.event_id} className="event-card-wrap">
+                  <button
+                    type="button"
+                    className="event-icon-btn event-icon-btn--danger"
+                    disabled={loading}
+                    aria-label={`Delete ${title}`}
+                    title="Delete event"
+                    onClick={() => void deleteEvent(ev)}
+                  >
+                    <IconTrash />
+                  </button>
+                  <button
+                    type="button"
+                    className="event-card event-card-clickable"
+                    style={{ flex: 1, minWidth: 0 }}
+                    onClick={() => navigateDashboard("detail", ev.event_id)}
+                  >
+                    <div className="event-card-row">
+                      {imgSrc ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={imgSrc} alt="" className="event-card-thumb" />
+                      ) : (
+                        <div className="event-card-thumb-ph" aria-hidden>{title.slice(0, 2).toUpperCase()}</div>
+                      )}
+                      <div className="event-card-main">
+                        <div className="event-header" style={{ marginBottom: desc ? 4 : 0 }}>
+                          <span className="event-title">{title}</span>
+                          <span className={`event-badge ${ev.is_private === true || ev.is_private === 1 ? "badge-private" : "badge-public"}`}>
+                            {ev.is_private === true || ev.is_private === 1 ? "Private" : "Public"}
+                          </span>
+                        </div>
+                        {desc ? <p className="event-desc" style={{ marginBottom: 0 }}>{desc}</p> : null}
                       </div>
-                      {desc ? <p className="event-desc" style={{ marginBottom: 0 }}>{desc}</p> : null}
+                      <span className="event-card-chevron" aria-hidden>›</span>
                     </div>
-                    <span className="event-card-chevron" aria-hidden>›</span>
-                  </div>
-                </button>
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -1304,6 +1386,14 @@ function AdminContent() {
               <p className="event-detail-note">Invite-only event. Share the register link below with attendees.</p>
             ) : null}
             <div className="event-detail-actions">
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={loading}
+                onClick={() => void deleteEvent(ev)}
+              >
+                Delete event
+              </button>
               <button type="button" className="btn btn-ghost" onClick={() => beginEditEvent(ev)}>Edit event</button>
               <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("categories", ev.event_id)}>
                 Categories

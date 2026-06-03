@@ -717,6 +717,18 @@
   color: #1d4ed8;
 }
 
+.adminIconBtnDanger {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.28);
+  color: #dc2626;
+}
+
+.adminIconBtnDanger:hover:not(:disabled) {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
 .adminCategoryEditBar {
   display: grid;
   grid-template-columns: 1fr auto auto;

@@ -187,6 +187,48 @@ function parseRequiredEventIdQuery(req: express.Request): { ok: true; eventId: n
   return { ok: true, eventId: id };
 }
 
+async function deleteVotesForCategoryIds(categoryIds: number[]) {
+  const ids = categoryIds.filter((id) => Number.isFinite(id) && id > 0);
+  if (!ids.length) return;
+  const placeholders = ids.map((_, i) => `:c${i}`).join(", ");
+  const params: Record<string, number> = {};
+  ids.forEach((id, i) => {
+    params[`c${i}`] = id;
+  });
+  await db.execute(`DELETE FROM votes WHERE category_id IN (${placeholders})`, params as any);
+}
+
+async function cleanupEventRelatedData(eventId: number) {
+  const [catRows] = await db.execute<RowDataPacket[]>(
+    `SELECT category_id FROM category WHERE event_id = :event_id`,
+    { event_id: eventId },
+  );
+  const categoryIds = catRows
+    .map((r) => Number(r.category_id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (categoryIds.length) {
+    await deleteVotesForCategoryIds(categoryIds);
+    await db.execute(`DELETE FROM category WHERE event_id = :event_id`, { event_id: eventId });
+  }
+  try {
+    await db.execute(`DELETE FROM allowed_mobiles WHERE event_id = :event_id`, { event_id: eventId });
+  } catch {
+    /* optional column on older databases */
+  }
+  await db.execute(`UPDATE users SET event_id = NULL WHERE event_id = :event_id`, { event_id: eventId });
+}
+
+async function ensureNomineeInEvent(nomineeId: number, eventId: number) {
+  const [rows] = await db.execute<RowDataPacket[]>(
+    `SELECT nominee_id, category_id FROM nominee WHERE nominee_id = :nominee_id LIMIT 1`,
+    { nominee_id: nomineeId },
+  );
+  const existing = rows[0];
+  if (!existing) return null;
+  const cat = await ensureCategoryInEvent(Number(existing.category_id), eventId);
+  return cat ? existing : null;
+}
+
 const adminSignInSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(72),
@@ -767,6 +809,29 @@ app.patch("/api/admin/events/:eventId", async (req, res) => {
   }
 });
 
+app.delete("/api/admin/events/:eventId", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId) || eventId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_EVENT_ID" });
+  }
+  try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
+    await cleanupEventRelatedData(eventId);
+    await db.execute(`DELETE FROM events WHERE event_id = :event_id AND admin_id = :admin_id`, {
+      event_id: eventId,
+      admin_id: admin.adminId,
+    });
+    return res.json({ ok: true, deleted: true, event_id: eventId });
+  } catch (e) {
+    console.error("admin delete event error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
 app.get("/api/events/:eventId", async (req, res) => {
   const eventId = Number(req.params.eventId);
   if (!Number.isFinite(eventId) || eventId <= 0) {
@@ -1003,6 +1068,38 @@ app.patch("/api/admin/categories/:categoryId", async (req, res) => {
   }
 });
 
+app.delete("/api/admin/categories/:categoryId", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED", message: "Sign in required." });
+  const categoryId = Number(req.params.categoryId);
+  if (!Number.isFinite(categoryId) || categoryId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_CATEGORY_ID" });
+  }
+  const eventParsed = parseRequiredEventIdQuery(req);
+  if (!eventParsed.ok) {
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_EVENT_ID",
+      message: "Query parameter eventId is required.",
+    });
+  }
+  const eventId = eventParsed.eventId;
+  try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
+    const found = await ensureCategoryInEvent(categoryId, eventId);
+    if (!found) return res.status(404).json({ ok: false, error: "CATEGORY_NOT_FOUND" });
+
+    await deleteVotesForCategoryIds([categoryId]);
+    await db.execute(`DELETE FROM category WHERE category_id = :category_id`, { category_id: categoryId });
+    return res.json({ ok: true, deleted: true, category_id: categoryId });
+  } catch (e) {
+    console.error("admin delete category db error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
 const adminCreateNomineeSchema = z.object({
   category_id: z.coerce.number().int().positive(),
   name: z.string().trim().min(1).max(100),
@@ -1138,6 +1235,41 @@ app.patch("/api/admin/nominees/:nomineeId", async (req, res) => {
     return res.json({ ok: true, nominee: outRows[0] ?? null });
   } catch (e) {
     console.error("admin update nominee db error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.delete("/api/admin/nominees/:nomineeId", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED", message: "Sign in required." });
+  const nomineeId = Number(req.params.nomineeId);
+  if (!Number.isFinite(nomineeId) || nomineeId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_NOMINEE_ID" });
+  }
+  const eventParsed = parseRequiredEventIdQuery(req);
+  if (!eventParsed.ok) {
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_EVENT_ID",
+      message: "Query parameter eventId is required.",
+    });
+  }
+  const eventId = eventParsed.eventId;
+  try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
+    const found = await ensureNomineeInEvent(nomineeId, eventId);
+    if (!found) return res.status(404).json({ ok: false, error: "NOMINEE_NOT_FOUND" });
+
+    await db.execute(`UPDATE category SET winner_nominee_id = NULL WHERE winner_nominee_id = :nominee_id`, {
+      nominee_id: nomineeId,
+    });
+    await db.execute(`DELETE FROM votes WHERE nominee_id = :nominee_id`, { nominee_id: nomineeId });
+    await db.execute(`DELETE FROM nominee WHERE nominee_id = :nominee_id`, { nominee_id: nomineeId });
+    return res.json({ ok: true, deleted: true, nominee_id: nomineeId });
+  } catch (e) {
+    console.error("admin delete nominee db error", e);
     return res.status(500).json({ ok: false, error: "DB_ERROR" });
   }
 });

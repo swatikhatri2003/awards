@@ -43,6 +43,14 @@ function IconX(props: React.SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+function IconTrash(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden {...props}>
+      <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10 11v6M14 11v6" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 export function EventCategoriesNomineesPanel(props: {
   mode: "categories" | "nominees";
@@ -167,6 +175,50 @@ export function EventCategoriesNomineesPanel(props: {
       await loadAdminData();
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : "CREATE_CATEGORY_FAILED");
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function adminDeleteCategory(categoryId: number, categoryName: string) {
+    const label = categoryName.trim() || "this category";
+    if (!window.confirm(`Delete "${label}" and all its nominees? This cannot be undone.`)) return;
+    setAdminLoading(true);
+    setAdminError(null);
+    try {
+      const res = await fetch(`${apiBase}/admin/categories/${categoryId}?eventId=${eventId}`, {
+        method: "DELETE",
+        headers: { ...adminAuthHeader(token) },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "DELETE_CATEGORY_FAILED");
+      if (adminCategoryEditId === categoryId) setAdminCategoryEditId(null);
+      if (viewNomineesCategoryId === categoryId) setViewNomineesCategoryId(null);
+      if (nomineeModalCategoryId === categoryId) closeNomineeModal();
+      await loadAdminData();
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "DELETE_CATEGORY_FAILED");
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function adminDeleteNominee(nomineeId: number, nomineeName: string) {
+    const label = nomineeName.trim() || "this nominee";
+    if (!window.confirm(`Delete "${label}"? Votes for this nominee will be removed.`)) return;
+    setAdminLoading(true);
+    setAdminError(null);
+    try {
+      const res = await fetch(`${apiBase}/admin/nominees/${nomineeId}?eventId=${eventId}`, {
+        method: "DELETE",
+        headers: { ...adminAuthHeader(token) },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "DELETE_NOMINEE_FAILED");
+      if (nomineeInlineEdit?.nominee_id === nomineeId) setNomineeInlineEdit(null);
+      await loadAdminData();
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "DELETE_NOMINEE_FAILED");
     } finally {
       setAdminLoading(false);
     }
@@ -397,21 +449,33 @@ export function EventCategoriesNomineesPanel(props: {
                     </div>
                   ) : (
                     <div className={styles.adminCategoryRowMain}>
+                      <div className={styles.adminRowIconGroup}>
+                        <button
+                          type="button"
+                          className={`${styles.adminIconBtn} ${styles.adminIconBtnDanger}`}
+                          onClick={() => void adminDeleteCategory(c.category_id, c.name)}
+                          disabled={adminLoading}
+                          aria-label={`Delete ${c.name}`}
+                          title="Delete category"
+                        >
+                          <IconTrash />
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.adminIconBtn}
+                          onClick={() => setAdminCategoryEditId(c.category_id)}
+                          aria-label="Edit category"
+                          title="Edit category"
+                        >
+                          <IconPencil />
+                        </button>
+                      </div>
                       <div className={styles.adminCategoryTitleWrap}>
                         <span style={{ fontSize: 15, fontWeight: 600, whiteSpace: "normal" }}>{c.name}</span>
                         {c.winner_nominee_id ? (
                           <span className="event-badge badge-public" style={{ marginLeft: 8 }}>Winner set</span>
                         ) : null}
                       </div>
-                      <button
-                        type="button"
-                        className={styles.adminIconBtn}
-                        onClick={() => setAdminCategoryEditId(c.category_id)}
-                        aria-label="Edit category"
-                        title="Edit category"
-                      >
-                        <IconPencil />
-                      </button>
                     </div>
                   )}
                 </div>
@@ -439,24 +503,36 @@ export function EventCategoriesNomineesPanel(props: {
                 const viewOpen = viewNomineesCategoryId === c.category_id;
                 return (
                   <div key={c.category_id} className={styles.adminCategoryRow}>
-                    <div
-                      className={styles.adminCategoryRowMain}
-                      style={{ cursor: "pointer" }}
-                      onClick={() => {
-                        setViewNomineesCategoryId((id) => (id === c.category_id ? null : c.category_id));
-                        setNomineeInlineEdit(null);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
+                    <div className={styles.adminCategoryRowMain}>
+                      <div className={styles.adminRowIconGroup}>
+                        <button
+                          type="button"
+                          className={`${styles.adminIconBtn} ${styles.adminIconBtnDanger}`}
+                          onClick={() => void adminDeleteCategory(c.category_id, c.name)}
+                          disabled={adminLoading}
+                          aria-label={`Delete ${c.name}`}
+                          title="Delete category"
+                        >
+                          <IconTrash />
+                        </button>
+                      </div>
+                      <div
+                        className={styles.adminCategoryTitleWrap}
+                        style={{ cursor: "pointer", flex: 1 }}
+                        onClick={() => {
                           setViewNomineesCategoryId((id) => (id === c.category_id ? null : c.category_id));
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      aria-expanded={viewOpen}
-                    >
-                      <div className={styles.adminCategoryTitleWrap}>
+                          setNomineeInlineEdit(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setViewNomineesCategoryId((id) => (id === c.category_id ? null : c.category_id));
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={viewOpen}
+                      >
                         <span style={{ fontSize: 15, fontWeight: 600, whiteSpace: "normal" }}>{c.name}</span>
                         <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-faint)" }}>
                           {noms.length} nominee{noms.length === 1 ? "" : "s"}
@@ -466,8 +542,7 @@ export function EventCategoriesNomineesPanel(props: {
                         type="button"
                         className="btn"
                         style={{ flexShrink: 0 }}
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={() => {
                           revokeNomineePhotoBlob();
                           setAdminNomineeForm({ name: "", photo: "", description: "" });
                           setNomineeModalCategoryId(c.category_id);
@@ -560,6 +635,38 @@ export function EventCategoriesNomineesPanel(props: {
                                 </div>
                               ) : (
                                 <div className={styles.adminNomineeCardRead}>
+                                  <div className={styles.adminRowIconGroup}>
+                                    <button
+                                      type="button"
+                                      className={`${styles.adminIconBtn} ${styles.adminIconBtnDanger}`}
+                                      onClick={() => void adminDeleteNominee(n.nominee_id, n.name)}
+                                      disabled={adminLoading}
+                                      aria-label={`Delete ${n.name}`}
+                                      title="Delete nominee"
+                                    >
+                                      <IconTrash />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={styles.adminIconBtn}
+                                      onClick={() => {
+                                        setNomineeInlineEdit({
+                                          nominee_id: n.nominee_id,
+                                          name: n.name || "",
+                                          photo: n.photo || "",
+                                          description: n.description || "",
+                                        });
+                                        setInlinePhotoBlobUrl((prev) => {
+                                          if (prev) URL.revokeObjectURL(prev);
+                                          return null;
+                                        });
+                                      }}
+                                      aria-label={`Edit ${n.name}`}
+                                      title="Edit nominee"
+                                    >
+                                      <IconPencil />
+                                    </button>
+                                  </div>
                                   <div className={styles.adminNomineeCardLeft}>
                                     {thumb ? (
                                       // eslint-disable-next-line @next/next/no-img-element
@@ -576,26 +683,6 @@ export function EventCategoriesNomineesPanel(props: {
                                       )}
                                     </div>
                                   </div>
-                                  <button
-                                    type="button"
-                                    className={styles.adminIconBtn}
-                                    onClick={() => {
-                                      setNomineeInlineEdit({
-                                        nominee_id: n.nominee_id,
-                                        name: n.name || "",
-                                        photo: n.photo || "",
-                                        description: n.description || "",
-                                      });
-                                      setInlinePhotoBlobUrl((prev) => {
-                                        if (prev) URL.revokeObjectURL(prev);
-                                        return null;
-                                      });
-                                    }}
-                                    aria-label={`Edit ${n.name}`}
-                                    title="Edit nominee"
-                                  >
-                                    <IconPencil />
-                                  </button>
                                 </div>
                               )}
                             </div>
