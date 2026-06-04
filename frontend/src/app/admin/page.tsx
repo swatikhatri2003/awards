@@ -13,6 +13,7 @@ import {
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 import { resolveEventBannerUrl } from "../_lib/resolveImageUrl";
 import { EventCategoriesNomineesPanel } from "./_components/EventCategoriesNomineesPanel";
+import { AdminModal } from "./_components/AdminModal";
 
 type ApiEvent = {
   event_id: number;
@@ -693,6 +694,7 @@ function AdminContent() {
   const [dashboardScreen, setDashboardScreen] = React.useState<DashboardScreen>("list");
   const [selectedEventId, setSelectedEventId] = React.useState<number | null>(null);
   const [copyDone, setCopyDone] = React.useState(false);
+  const [eventFormModal, setEventFormModal] = React.useState<null | "create" | "edit">(null);
 
   const loadEvents = React.useCallback(async () => {
     const token = readAdminToken();
@@ -774,12 +776,20 @@ function AdminContent() {
   React.useEffect(() => {
     if (view !== "dashboard") return;
     const parsed = parseDashboardFromSearchParams(searchParams);
-    setDashboardScreen(parsed.screen);
+    const screenRaw = searchParams.get("screen");
+    const screen =
+      screenRaw === "create" ? "list" : screenRaw === "edit" && parsed.eventId ? "detail" : parsed.screen;
+    setDashboardScreen(screen);
     setSelectedEventId(parsed.eventId);
+    if (screenRaw === "create") {
+      setEventFormModal("create");
+    } else if (screenRaw === "edit" && parsed.eventId) {
+      setEventFormModal("edit");
+    }
   }, [view, searchParams]);
 
   React.useEffect(() => {
-    if (view !== "dashboard" || dashboardScreen !== "edit" || selectedEventId == null) return;
+    if (view !== "dashboard" || eventFormModal !== "edit" || selectedEventId == null) return;
     const ev = events.find(e => e.event_id === selectedEventId);
     if (!ev || editingEventId === ev.event_id) return;
     setEditingEventId(ev.event_id);
@@ -794,7 +804,7 @@ function AdminContent() {
     setCreateIsPrivate(ev.is_private === true || ev.is_private === 1);
     setCreateStartLocal(toDatetimeLocalValue(ev.start_time));
     setCreateEndLocal(toDatetimeLocalValue(ev.end_time));
-  }, [view, dashboardScreen, selectedEventId, events, editingEventId, apiOrigin]);
+  }, [view, eventFormModal, selectedEventId, events, editingEventId, apiOrigin]);
 
   const revokeEventBannerPreview = React.useCallback(() => {
     setEventBannerPreviewUrl(prev => { if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev); return null; });
@@ -1076,21 +1086,20 @@ function AdminContent() {
     setCreateStartLocal(toDatetimeLocalValue(ev.start_time));
     setCreateEndLocal(toDatetimeLocalValue(ev.end_time));
     setError(null);
-    navigateDashboard("edit", ev.event_id);
+    setEventFormModal("edit");
+    if (selectedEventId !== ev.event_id) navigateDashboard("detail", ev.event_id);
   }
 
   function cancelEditEvent() {
-    const returnId = editingEventId;
+    setEventFormModal(null);
     resetEventForm();
     setError(null);
-    if (returnId != null) navigateDashboard("detail", returnId);
-    else navigateDashboard("list");
   }
 
   function openCreateEvent() {
     resetEventForm();
     setError(null);
-    navigateDashboard("create");
+    setEventFormModal("create");
   }
 
   async function uploadEventPhoto(file: File) {
@@ -1132,6 +1141,7 @@ function AdminContent() {
       const savedId = isEdit
         ? editingEventId
         : Number(data?.event?.event_id ?? 0) || null;
+      setEventFormModal(null);
       resetEventForm();
       await loadEvents();
       if (savedId) navigateDashboard("detail", savedId);
@@ -1190,14 +1200,8 @@ function AdminContent() {
     const selectedEvent =
       selectedEventId != null ? events.find(e => e.event_id === selectedEventId) ?? null : null;
 
-    const eventFormPanel = (
-      <div className="panel">
-        <div className="panel-title">
-          {editingEventId != null ? "Edit event" : "New event"}
-          {editingEventId != null && <span className="panel-title-pill">Editing</span>}
-        </div>
-
-        <form onSubmit={submitCreateEvent}>
+    const eventFormFields = (
+        <form id="admin-event-form" onSubmit={submitCreateEvent}>
           <div className="row-mix">
             <div className="field">
               <div className="label">Event title *</div>
@@ -1255,16 +1259,7 @@ function AdminContent() {
             </div>
           </fieldset>
 
-          <div className="actions-row">
-            <button type="submit" className="btn" disabled={loading || uploading}>
-              {loading ? "Saving…" : editingEventId != null ? "Save changes" : "Create event"}
-            </button>
-            <button type="button" className="btn btn-ghost" disabled={loading || uploading} onClick={cancelEditEvent}>
-              Cancel
-            </button>
-          </div>
         </form>
-      </div>
     );
 
     const eventsListSection = (
@@ -1433,30 +1428,7 @@ function AdminContent() {
     );
 
     let dashboardBody: React.ReactNode;
-    if (dashboardScreen === "create") {
-      dashboardBody = (
-        <>
-          <div className="back-row">
-            <button type="button" className="back-link" onClick={() => navigateDashboard("list")}>← Your events</button>
-          </div>
-          {eventFormPanel}
-        </>
-      );
-    } else if (dashboardScreen === "edit") {
-      dashboardBody = (
-        <>
-          <div className="back-row">
-            <button type="button" className="back-link" onClick={() => cancelEditEvent()}>← Event details</button>
-          </div>
-          {selectedEvent ? eventFormPanel : (
-            <div className="panel">
-              <p className="hint" style={{ padding: "1rem 0" }}>Event not found.</p>
-              <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("list")}>Back to your events</button>
-            </div>
-          )}
-        </>
-      );
-    } else if (dashboardScreen === "detail") {
+    if (dashboardScreen === "detail") {
       dashboardBody = (
         <>
           <div className="back-row">
@@ -1504,6 +1476,26 @@ function AdminContent() {
           {error && <div className="error-box">{error}</div>}
 
           {dashboardBody}
+
+          {eventFormModal ? (
+            <AdminModal
+              wide
+              title={eventFormModal === "create" ? "New event" : "Edit event"}
+              onClose={cancelEditEvent}
+              footer={
+                <>
+                  <button type="button" className="btn btn-ghost" disabled={loading || uploading} onClick={cancelEditEvent}>
+                    Cancel
+                  </button>
+                  <button type="submit" form="admin-event-form" className="btn" disabled={loading || uploading}>
+                    {loading ? "Saving…" : eventFormModal === "edit" ? "Save changes" : "Create event"}
+                  </button>
+                </>
+              }
+            >
+              {eventFormFields}
+            </AdminModal>
+          ) : null}
 
           {!token && <p className="error-box" style={{ marginTop: 16 }}>Session missing — please log in again.</p>}
         </div>

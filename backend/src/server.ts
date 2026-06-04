@@ -917,12 +917,17 @@ app.get("/api/nominees", async (req, res) => {
   }
   const eventId = parsedQuery.data.eventId;
   try {
+    const admin = await loadAdminFromRequest(req);
+    const adminView =
+      !!admin && (await assertAdminOwnsEvent(admin.adminId, eventId));
     const { whereSql, params } = eventCategoryWhere(eventId, "c");
+    const approvalSql = adminView ? "" : " AND COALESCE(n.is_approved, 0) = 1";
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT n.nominee_id, n.photo, n.name, n.description, n.category_id, n.votes
+      `SELECT n.nominee_id, n.photo, n.name, n.description, n.category_id, n.votes,
+              COALESCE(n.is_approved, 0) AS is_approved
        FROM nominee n
        INNER JOIN category c ON c.category_id = n.category_id
-       ${whereSql}
+       ${whereSql}${approvalSql}
        ORDER BY n.category_id ASC, n.nominee_id ASC`,
       params,
     );
@@ -940,7 +945,8 @@ app.get("/api/nominees/:nomineeId", async (req, res) => {
   }
   try {
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT nominee_id, photo, name, description, category_id, votes
+      `SELECT nominee_id, photo, name, description, category_id, votes,
+              COALESCE(is_approved, 0) AS is_approved
        FROM nominee
        WHERE nominee_id = :nominee_id
        LIMIT 1`,
@@ -1112,6 +1118,7 @@ const adminUpdateNomineeSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   description: z.string().trim().max(5000).nullable().optional(),
   photo: z.string().trim().max(150).optional(),
+  is_approved: z.coerce.number().int().min(0).max(1).optional(),
 });
 
 app.post("/api/admin/nominees", async (req, res) => {
@@ -1138,8 +1145,8 @@ app.post("/api/admin/nominees", async (req, res) => {
     if (!cat) return res.status(404).json({ ok: false, error: "CATEGORY_NOT_FOUND" });
 
     const [result] = await db.execute(
-      `INSERT INTO nominee (photo, name, description, category_id, votes)
-       VALUES (:photo, :name, :description, :category_id, 0)`,
+      `INSERT INTO nominee (photo, name, description, category_id, votes, is_approved)
+       VALUES (:photo, :name, :description, :category_id, 0, 0)`,
       {
         photo: storedUploadBasename(parsed.data.photo ?? ""),
         name: parsed.data.name,
@@ -1150,7 +1157,8 @@ app.post("/api/admin/nominees", async (req, res) => {
     // @ts-expect-error mysql2 result shape varies by config
     const id = Number(result?.insertId ?? 0);
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT nominee_id, photo, name, description, category_id, votes
+      `SELECT nominee_id, photo, name, description, category_id, votes,
+              COALESCE(is_approved, 0) AS is_approved
        FROM nominee
        WHERE nominee_id = :nominee_id
        LIMIT 1`,
@@ -1220,13 +1228,18 @@ app.patch("/api/admin/nominees/:nomineeId", async (req, res) => {
       updates.push("category_id = :category_id");
       params.category_id = parsed.data.category_id;
     }
+    if (parsed.data.is_approved !== undefined) {
+      updates.push("is_approved = :is_approved");
+      params.is_approved = parsed.data.is_approved ? 1 : 0;
+    }
     if (!updates.length) {
       return res.status(400).json({ ok: false, error: "NO_CHANGES" });
     }
 
     await db.execute(`UPDATE nominee SET ${updates.join(", ")} WHERE nominee_id = :nominee_id`, params as any);
     const [outRows] = await db.execute<RowDataPacket[]>(
-      `SELECT nominee_id, photo, name, description, category_id, votes
+      `SELECT nominee_id, photo, name, description, category_id, votes,
+              COALESCE(is_approved, 0) AS is_approved
        FROM nominee
        WHERE nominee_id = :nominee_id
        LIMIT 1`,
@@ -1303,10 +1316,20 @@ app.post("/api/nominees/:nomineeId/vote", async (req, res) => {
 
   try {
     const [nomRows] = await db.execute<RowDataPacket[]>(
-      `SELECT category_id FROM nominee WHERE nominee_id = :nominee_id LIMIT 1`,
+      `SELECT category_id, COALESCE(is_approved, 0) AS is_approved
+       FROM nominee WHERE nominee_id = :nominee_id LIMIT 1`,
       { nominee_id: nomineeId },
     );
-    const catid = Number(nomRows[0]?.category_id);
+    const nomRow = nomRows[0];
+    if (!nomRow) return res.status(404).json({ ok: false, error: "NOMINEE_NOT_FOUND" });
+    if (Number(nomRow.is_approved) !== 1) {
+      return res.status(403).json({
+        ok: false,
+        error: "NOMINEE_NOT_APPROVED",
+        message: "This nominee is not approved for voting yet.",
+      });
+    }
+    const catid = Number(nomRow.category_id);
     if (Number.isFinite(catid) && catid > 0) {
       const [catEventRows] = await db.execute<RowDataPacket[]>(
         `SELECT c.event_id, e.start_time, e.end_time
@@ -1692,6 +1715,20 @@ async function ensureEventsIsPrivateColumn(): Promise<void> {
   }
 }
 
+/** Adds nominee approval flag when missing. */
+async function ensureNomineeIsApprovedColumn(): Promise<void> {
+  try {
+    await db.execute(
+      `ALTER TABLE nominee ADD COLUMN is_approved TINYINT(1) NOT NULL DEFAULT 0`,
+    );
+  } catch (e: unknown) {
+    const err = e as { errno?: number; code?: string; message?: string };
+    if (err.errno === 1060 || err.code === "ER_DUP_FIELDNAME") return;
+    if (/duplicate column name/i.test(String(err.message ?? ""))) return;
+    throw e;
+  }
+}
+
 /** Adds voting window columns when missing. */
 async function ensureEventsVotingWindowColumns(): Promise<void> {
   for (const sql of [
@@ -1711,6 +1748,7 @@ async function ensureEventsVotingWindowColumns(): Promise<void> {
 
 ensureEventsIsPrivateColumn()
   .then(() => ensureEventsVotingWindowColumns())
+  .then(() => ensureNomineeIsApprovedColumn())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`API listening on http://localhost:${PORT}`);

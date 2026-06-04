@@ -766,8 +766,14 @@
 .adminNomineeCardRead {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.adminNomineeCardRead > .adminNomineeCardLeft {
+  flex: 1;
+  min-width: min(100%, 220px);
 }
 
 .adminNomineeCardLeft {
@@ -854,11 +860,118 @@
   margin-bottom: 14px;
 }
 
+.adminModalWide {
+  max-width: 520px;
+}
+
 .adminModalTitle {
   font-size: 18px;
   font-weight: 800;
   color: var(--text, #0f172a);
   margin: 0;
+}
+
+.adminNomineeToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.adminNomineeToolbar .input {
+  flex: 1;
+  min-width: 160px;
+}
+
+.adminNomineeListFlat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.adminApproveSwitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+}
+
+.adminApproveSwitch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.adminApproveTrack {
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+  position: relative;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.adminApproveTrack::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  transition: transform 0.15s;
+}
+
+.adminApproveSwitch input:checked + .adminApproveTrack {
+  background: #059669;
+  border-color: #059669;
+}
+
+.adminApproveSwitch input:checked + .adminApproveTrack::after {
+  transform: translateX(20px);
+}
+
+.adminApproveSwitch input:focus-visible + .adminApproveTrack {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.adminNomineeMeta {
+  font-size: 12px;
+  color: var(--text-faint, #94a3b8);
+  margin-top: 4px;
+}
+
+.adminBadgePending {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(217, 119, 6, 0.12);
+  color: #b45309;
+  margin-left: 8px;
+}
+
+.adminBadgeApproved {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(5, 150, 105, 0.12);
+  color: #047857;
+  margin-left: 8px;
 }
 
 .adminModalFooter {
