@@ -114,7 +114,7 @@ export function HomeExperience(props: {
         </section>
 
         <section id="events" className="hxSection hxSection--events">
-          <Reveal className="hxSectionIntro">
+          <Reveal className="hxSectionIntro hxSectionIntroRow">
             <h2 className="hxH2">Public events</h2>
             <p className="hxSub">
               {hasMoreEvents

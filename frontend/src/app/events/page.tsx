@@ -57,10 +57,12 @@ export default function PublicEventsPage() {
       <header className="hxTop">
         <SiteNav />
         <div className="hxEventsPageHero">
-          <h1 className="hxH2 hxEventsPageTitle">All public events</h1>
-          <p className="hxSub hxEventsPageLead">
-            Every open event is listed here. Choose one to register, then vote.
-          </p>
+          <div className="hxEventsPageHeroRow">
+            <h1 className="hxH2 hxEventsPageTitle">All public events</h1>
+            <p className="hxSub hxEventsPageLead">
+              Every open event is listed here. Choose one to register, then vote.
+            </p>
+          </div>
         </div>
       </header>
 

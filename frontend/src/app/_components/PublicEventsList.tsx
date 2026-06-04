@@ -33,7 +33,9 @@ export function PublicEventsList(props: { events: HomePublicEvent[]; apiOrigin: 
                 </div>
                 <div className="hxEventCopy">
                   <h3 className="hxEventTitle">{title}</h3>
-                  {desc ? <p className="hxEventDesc">{desc}</p> : null}
+                  <p className={`hxEventDesc${desc ? "" : " hxEventDesc--empty"}`}>
+                    {desc || "No description"}
+                  </p>
                   <span className="hxEventGo">View event</span>
                 </div>
               </Link>

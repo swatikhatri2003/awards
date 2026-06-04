@@ -1,9 +1,11 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Shell } from "../_components/Shell";
+import { withBasePath } from "../_lib/basePath";
 import {
   clearCurrentUser,
   pushUserVote,
@@ -317,6 +319,9 @@ export default function UsersVotePage() {
     ? nominees.find((n) => Number(n.nominee_id) === votedNomineeId) ?? null
     : null;
 
+  const eventId =
+    typeof user?.eventId === "number" && user.eventId > 0 ? Math.floor(user.eventId) : null;
+
   const headerTitle = done
     ? "All Done"
     : activeCategory
@@ -436,9 +441,16 @@ export default function UsersVotePage() {
       bare
       right={
         user ? (
-          <button className="linkBtn" type="button" onClick={logout}>
-            Logout
-          </button>
+          <div className="shellHeaderActionGroup">
+            {eventId ? (
+              <Link href={withBasePath(`/events/${eventId}`)} className="linkBtn">
+                Event details
+              </Link>
+            ) : null}
+            <button className="linkBtn" type="button" onClick={logout}>
+              Logout
+            </button>
+          </div>
         ) : null
       }
     >
@@ -449,11 +461,23 @@ export default function UsersVotePage() {
           fontWeight: 800,
           lineHeight: 1.15,
           letterSpacing: "-0.01em",
-          margin: "0 0 18px",
+          margin: "0 0 12px",
         }}
       >
         {headerTitle}
       </h1>
+
+      {eventId ? (
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
+          <Link
+            href={withBasePath(`/events/${eventId}`)}
+            className="btn btnSecondary"
+            style={{ textDecoration: "none" }}
+          >
+            See event details
+          </Link>
+        </div>
+      ) : null}
 
       {error ? <div className="error">Error: {error}</div> : null}
 

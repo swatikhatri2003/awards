@@ -873,15 +873,46 @@
 
 .adminNomineeToolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
-  align-items: center;
+  align-items: stretch;
   margin-bottom: 14px;
 }
 
-.adminNomineeToolbar .input {
-  flex: 1;
-  min-width: 160px;
+.adminNomineeToolbarSearch {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.adminNomineeToolbarSelect {
+  flex: 0 1 200px;
+  min-width: 140px;
+  max-width: 220px;
+}
+
+.adminNomineeToolbarAdd {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .adminNomineeToolbar {
+    flex-wrap: wrap;
+  }
+
+  .adminNomineeToolbarSearch {
+    flex: 1 1 100%;
+    min-width: 100%;
+  }
+
+  .adminNomineeToolbarSelect {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+
+  .adminNomineeToolbarAdd {
+    flex: 1 1 auto;
+  }
 }
 
 .adminNomineeListFlat {

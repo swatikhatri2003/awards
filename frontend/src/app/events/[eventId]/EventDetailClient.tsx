@@ -111,11 +111,11 @@ function EventDetailContent() {
       <header className="hxTop">
         <SiteNav />
         <div className="hxEventsPageHero">
-          <p className="hxEventDetailBack">
+          <nav className="hxEventDetailBack" aria-label="Breadcrumb">
             <Link href={withBasePath("/")}>← Home</Link>
-            <span aria-hidden> · </span>
+            <span className="hxEventDetailBackSep" aria-hidden>·</span>
             <Link href={withBasePath("/events")}>All events</Link>
-          </p>
+          </nav>
         </div>
       </header>
 
@@ -190,11 +190,9 @@ function EventDetailContent() {
                 ) : null}
 
                 <div className="hxEventDetailActions">
-                  {!isPrivate ? (
-                    <Link href={registerHref} className="hxPillBtn hxPillBtn--lg">
-                      Register & vote
-                    </Link>
-                  ) : null}
+                  <Link href={registerHref} className="hxPillBtn hxPillBtn--lg">
+                    Register & vote
+                  </Link>
                   <Link href={withBasePath("/events")} className="hxPillBtn hxPillBtn--soft">
                     More events
                   </Link>

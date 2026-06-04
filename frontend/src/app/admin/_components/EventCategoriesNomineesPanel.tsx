@@ -506,15 +506,9 @@ export function EventCategoriesNomineesPanel(props: {
             </div>
           ) : (
             <>
-              <div className={styles.adminCatToolbar} style={{ marginBottom: 10 }}>
-                <button type="button" className="btn" onClick={openAddNomineeModal} disabled={adminLoading}>
-                  Add nominee
-                </button>
-              </div>
-
               <div className={styles.adminNomineeToolbar}>
                 <input
-                  className="input"
+                  className={`input ${styles.adminNomineeToolbarSearch}`}
                   type="search"
                   placeholder="Search nominees…"
                   value={searchQuery}
@@ -522,8 +516,7 @@ export function EventCategoriesNomineesPanel(props: {
                   aria-label="Search nominees"
                 />
                 <select
-                  className="input"
-                  style={{ maxWidth: 220, flex: "0 1 auto" }}
+                  className={`input ${styles.adminNomineeToolbarSelect}`}
                   value={filterCategoryId === "all" ? "all" : String(filterCategoryId)}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -538,6 +531,14 @@ export function EventCategoriesNomineesPanel(props: {
                     </option>
                   ))}
                 </select>
+                <button
+                  type="button"
+                  className={`btn ${styles.adminNomineeToolbarAdd}`}
+                  onClick={openAddNomineeModal}
+                  disabled={adminLoading}
+                >
+                  Add nominee
+                </button>
               </div>
 
               {filteredNominees.length === 0 && !adminLoading ? (

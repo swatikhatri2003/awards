@@ -179,6 +179,14 @@ html {
   align-items: center;
 }
 
+.shellHeaderActionGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
 @media (max-width: 520px) {
   .shellHeader:not(.shellHeader--actionsOnly) .shellHeaderActions {
     width: 100%;
@@ -1492,12 +1500,40 @@ input[type="file"].input {
   padding: clamp(12px, 3vw, 24px) var(--hx-nav-pad) clamp(8px, 2vw, 16px);
 }
 
+.hxEventsPageHeroRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
 .hxEventsPageTitle {
-  margin-bottom: 8px;
+  margin: 0;
 }
 
 .hxEventsPageLead {
   margin: 0;
+  flex: 1 1 280px;
+  max-width: 42ch;
+}
+
+.hxSectionIntroRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.hxSectionIntroRow .hxH2 {
+  margin: 0;
+}
+
+.hxSectionIntroRow .hxSub {
+  margin: 0;
+  flex: 1 1 260px;
+  max-width: 44ch;
 }
 
 .hxMain {
@@ -1661,91 +1697,57 @@ input[type="file"].input {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 22px;
+  align-items: stretch;
 }
 
 .hxEventRiverItem {
   list-style: none;
   min-width: 0;
   width: 100%;
-  max-width: 100%;
-}
-
-@media (min-width: 720px) {
-  .hxEventRiver {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 22px;
-  }
+  display: flex;
 }
 
 .hxEventWrap {
   min-height: 0;
   min-width: 0;
   width: 100%;
-  max-width: 100%;
+  display: flex;
+  flex: 1;
 }
 
 .hxEventCard {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
   border-radius: 24px;
   overflow: hidden;
   min-width: 0;
-  width: 100%;
-  max-width: 100%;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 12px 48px rgba(15, 23, 42, 0.1);
+  border: 1px solid rgba(15, 23, 42, 0.06);
   transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
-}
-
-@media (min-width: 640px) {
-  .hxEventCard {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-    align-items: stretch;
-  }
-}
-
-/* Narrow screens: show full banner art (avoid cropping marketing text in images) */
-@media (max-width: 639px) {
-  .hxEventVisual {
-    aspect-ratio: 4 / 3;
-    min-height: 180px;
-    background: #2c2825;
-  }
-
-  .hxEventImg {
-    object-fit: contain;
-    object-position: center center;
-  }
-
-  .hxEventCard:hover .hxEventImg {
-    transform: none;
-  }
+  text-decoration: none;
+  color: inherit;
 }
 
 .hxEventCard:hover {
-  transform: translateY(-4px) scale(1.01);
+  transform: translateY(-4px);
   box-shadow: 0 24px 64px rgba(37, 99, 235, 0.15);
 }
 
 .hxEventVisual {
   position: relative;
   aspect-ratio: 16 / 10;
-  min-height: 160px;
+  width: 100%;
+  flex-shrink: 0;
   background: linear-gradient(145deg, #e0e7ff, #dbeafe);
   overflow: hidden;
-}
-
-@media (min-width: 640px) {
-  .hxEventVisual {
-    aspect-ratio: auto;
-    min-height: 100%;
-  }
 }
 
 .hxEventImg {
@@ -1765,7 +1767,6 @@ input[type="file"].input {
 .hxEventPh {
   width: 100%;
   height: 100%;
-  min-height: 160px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1803,28 +1804,26 @@ input[type="file"].input {
 }
 
 .hxEventCopy {
-  padding: 22px 24px 26px;
+  padding: 20px 22px 22px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  justify-content: center;
+  gap: 8px;
+  flex: 1;
   min-width: 0;
-}
-
-@media (max-width: 639px) {
-  .hxEventCopy {
-    padding: 18px 16px 20px;
-  }
+  min-height: 132px;
 }
 
 .hxEventTitle {
-  font-size: clamp(18px, 2vw, 22px);
+  font-size: 18px;
   font-weight: 800;
   margin: 0;
-  line-height: 1.25;
+  line-height: 1.3;
   letter-spacing: -0.02em;
   overflow-wrap: anywhere;
-  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .hxEventDesc {
@@ -1832,20 +1831,28 @@ input[type="file"].input {
   font-size: 14px;
   line-height: 1.5;
   color: var(--muted);
+  flex: 1;
+  min-height: calc(14px * 1.5 * 2);
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
+.hxEventDesc--empty {
+  visibility: hidden;
+}
+
 .hxEventGo {
-  margin-top: 6px;
+  margin-top: auto;
+  padding-top: 4px;
   font-size: 14px;
   font-weight: 700;
   color: var(--accent2);
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .hxEventGo::after {
@@ -2058,23 +2065,37 @@ input[type="file"].input {
 
 /* ── Event detail page ── */
 .hxEventDetailBack {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
   margin: 0;
   font-size: 14px;
   color: var(--muted);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .hxEventDetailBack a {
   color: var(--accent2);
   text-decoration: none;
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .hxEventDetailBack a:hover {
   text-decoration: underline;
 }
 
+.hxEventDetailBackSep {
+  color: var(--muted2, #94a3b8);
+  flex-shrink: 0;
+  user-select: none;
+}
+
 .hxEventDetailSection {
-  max-width: 720px;
+  max-width: var(--hx-max, 1120px);
 }
 
 .hxEventDetailEmpty {
@@ -2085,17 +2106,18 @@ input[type="file"].input {
 }
 
 .hxEventDetail {
+  max-width: 640px;
+  margin: 0 auto;
   background: rgba(255, 255, 255, 0.92);
   border-radius: var(--hx-radius-lg, 24px);
   overflow: hidden;
-  box-shadow: 0 12px 48px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 48px rgba(15, 23, 42, 0.1);
   border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
 .hxEventDetailVisual {
-  aspect-ratio: 21 / 9;
-  min-height: 160px;
-  max-height: 320px;
+  aspect-ratio: 16 / 10;
+  width: 100%;
   background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%);
   overflow: hidden;
 }
@@ -2126,6 +2148,7 @@ input[type="file"].input {
 .hxEventDetailBadges {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin-bottom: 14px;
 }
@@ -2187,7 +2210,8 @@ input[type="file"].input {
 
 .hxEventDetailMeta {
   display: grid;
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px 20px;
   margin: 0 0 20px;
   padding: 16px 18px;
   background: rgba(15, 23, 42, 0.03);
@@ -2197,6 +2221,7 @@ input[type="file"].input {
 .hxEventDetailMeta div {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
 .hxEventDetailMeta dt {
