@@ -3,7 +3,7 @@
 import React, { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import styles from "./led-kiosk.module.css";
-import { setYlfCategory, setYlfGraph, setYlfPage, setYlfTimer } from "@/lib/firebase";
+import { setYlfCategory, setYlfGraph, setYlfPage, setYlfTimer, setYlfWinners, type YlfWinnerEntry } from "@/lib/firebase";
 import { adminAuthHeader, readAdminToken } from "../_lib/adminAuthSession";
 import { withBasePath } from "../_lib/basePath";
 import { resolveEventBannerUrl, resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
@@ -22,7 +22,26 @@ type Category = {
   name: string;
   winner_nominee_id: number | null;
   event_id?: number | null;
+  show_nominee?: number | boolean | null;
+  declare_result?: number | boolean | null;
 };
+
+function categoryShowsNominees(c: Category | undefined): boolean {
+  if (!c) return false;
+  return c.show_nominee === true || c.show_nominee === 1;
+}
+
+function categoryDeclaresResult(c: Category | undefined, eventDeclaresAll: boolean): boolean {
+  if (eventDeclaresAll) return true;
+  if (!c) return false;
+  return c.declare_result === true || c.declare_result === 1;
+}
+
+function categoryHasVisibleWinner(c: Category, eventDeclaresAll: boolean): boolean {
+  if (!categoryDeclaresResult(c, eventDeclaresAll)) return false;
+  const wid = c.winner_nominee_id;
+  return wid != null && Number(wid) > 0;
+}
 
 type Nominee = {
   nominee_id: number;
@@ -127,12 +146,14 @@ function LedDashboard({
     name: "Event",
     photoSrc: "/ylf-member-awards-banner.png",
   });
+  const [eventDeclareResult, setEventDeclareResult] = React.useState(false);
+  const [eventIsLive, setEventIsLive] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
     void fetch(`${apiBase}/events/${eventId}`)
       .then((r) => r.json())
-      .then((d: { ok?: boolean; event?: { title?: string; image?: string | null } }) => {
+      .then((d: { ok?: boolean; event?: { title?: string; image?: string | null; declare_result?: number | boolean | null; is_live?: number | boolean | null } }) => {
         if (cancelled || !d?.event) return;
         const ev = d.event;
         const rawImg = (ev.image || "").trim();
@@ -142,6 +163,8 @@ function LedDashboard({
           name: (ev.title && String(ev.title).trim()) || "Event",
           photoSrc: img,
         });
+        setEventDeclareResult(ev.declare_result === true || ev.declare_result === 1);
+        setEventIsLive(ev.is_live === true || ev.is_live === 1);
       })
       .catch(() => {});
     return () => {
@@ -286,6 +309,34 @@ function LedDashboard({
     }
   }, [screen, categories, loadNominees]);
 
+  const visibleWinnerCategories = React.useMemo(
+    () => categories.filter((c) => categoryHasVisibleWinner(c, eventDeclareResult)),
+    [categories, eventDeclareResult],
+  );
+
+  const buildWinnerEntries = React.useCallback(
+    (cats: Category[], eventDeclaresAll = eventDeclareResult): YlfWinnerEntry[] => {
+      return cats
+        .filter((c) => categoryHasVisibleWinner(c, eventDeclaresAll))
+        .map((c) => {
+          const wid = Number(c.winner_nominee_id);
+          const nominee = (nomineesByCategory[c.category_id] || []).find(
+            (n) => Number(n.nominee_id) === wid,
+          );
+          return {
+            categoryId: c.category_id,
+            categoryName: c.name,
+            nominee: {
+              id: wid,
+              name: nominee?.name ?? "",
+              photo: nominee?.photo ?? "",
+            },
+          };
+        });
+    },
+    [eventDeclareResult, nomineesByCategory],
+  );
+
   React.useEffect(() => {
     const id = window.setInterval(() => {
       setTimers((prev) => {
@@ -372,6 +423,148 @@ function LedDashboard({
   const selectedNomineesLoading = selectedCategoryId ? nomineesLoadingByCategory[selectedCategoryId] || false : false;
   const selectedNomineesError = selectedCategoryId ? nomineesErrorByCategory[selectedCategoryId] || null : null;
   const selectedTimer = selectedCategoryId ? timers[selectedCategoryId] : undefined;
+  const selectedShowNominees = categoryShowsNominees(selectedCategory);
+
+  const nomineesForFirebase = React.useCallback((nominees: Nominee[]) => {
+    return nominees.map((n) => ({
+      id: n.nominee_id,
+      name: n.name,
+      photo: n.photo ?? "",
+      votes: Number(n.votes ?? 0),
+    }));
+  }, []);
+
+  const pushCategoryToScreen = React.useCallback(
+    (c: Category, nominees: Nominee[]) => {
+      void setYlfCategory(eventId, {
+        id: c.category_id,
+        name: c.name,
+        showNominee: categoryShowsNominees(c),
+        nominees: nomineesForFirebase(nominees),
+      });
+    },
+    [eventId, nomineesForFirebase],
+  );
+
+  const [showNomineeSaving, setShowNomineeSaving] = React.useState(false);
+  const [declareResultSaving, setDeclareResultSaving] = React.useState(false);
+  const [isLiveSaving, setIsLiveSaving] = React.useState(false);
+
+  async function toggleEventIsLive(next: boolean) {
+    setIsLiveSaving(true);
+    setCategoriesError(null);
+    try {
+      const res = await fetch(`${apiBase}/admin/events/${eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
+        body: JSON.stringify({ is_live: next ? 1 : 0 }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "UPDATE_EVENT_FAILED");
+      setEventIsLive(next);
+    } catch (e) {
+      setCategoriesError(e instanceof Error ? e.message : "UPDATE_EVENT_FAILED");
+    } finally {
+      setIsLiveSaving(false);
+    }
+  }
+
+  const pushWinnersToScreen = React.useCallback(
+    (cats: Category[]) => {
+      void setYlfWinners(eventId, buildWinnerEntries(cats));
+    },
+    [buildWinnerEntries, eventId],
+  );
+
+  async function toggleEventDeclareResult(next: boolean) {
+    setDeclareResultSaving(true);
+    setCategoriesError(null);
+    try {
+      const res = await fetch(`${apiBase}/admin/events/${eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
+        body: JSON.stringify({ declare_result: next ? 1 : 0 }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "UPDATE_EVENT_FAILED");
+      setEventDeclareResult(next);
+      if (screen === "WINNER") {
+        void setYlfWinners(eventId, buildWinnerEntries(categories, next));
+      }
+    } catch (e) {
+      setCategoriesError(e instanceof Error ? e.message : "UPDATE_EVENT_FAILED");
+    } finally {
+      setDeclareResultSaving(false);
+    }
+  }
+
+  async function toggleCategoryDeclareResult(c: Category, next: boolean) {
+    setDeclareResultSaving(true);
+    setCategoriesError(null);
+    try {
+      const res = await fetch(
+        `${apiBase}/admin/categories/${c.category_id}?eventId=${eventId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
+          body: JSON.stringify({ declare_result: next ? 1 : 0 }),
+        },
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "UPDATE_CATEGORY_FAILED");
+
+      const patch = (list: Category[]) =>
+        list.map((cat) =>
+          cat.category_id === c.category_id ? { ...cat, declare_result: next ? 1 : 0 } : cat,
+        );
+
+      const nextCategories = patch(categories);
+      setCategories(nextCategories);
+      setAdminCategories((prev) => patch(prev));
+
+      if (screen === "WINNER") {
+        pushWinnersToScreen(nextCategories);
+      }
+    } catch (e) {
+      setCategoriesError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
+    } finally {
+      setDeclareResultSaving(false);
+    }
+  }
+
+  async function toggleCategoryShowNominee(c: Category, next: boolean) {
+    setShowNomineeSaving(true);
+    setCategoriesError(null);
+    try {
+      const res = await fetch(
+        `${apiBase}/admin/categories/${c.category_id}?eventId=${eventId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
+          body: JSON.stringify({ show_nominee: next ? 1 : 0 }),
+        },
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "UPDATE_CATEGORY_FAILED");
+
+      const patch = (list: Category[]) =>
+        list.map((cat) =>
+          cat.category_id === c.category_id ? { ...cat, show_nominee: next ? 1 : 0 } : cat,
+        );
+
+      setCategories((prev) => patch(prev));
+      setAdminCategories((prev) => patch(prev));
+
+      if (selectedCategoryId === c.category_id) {
+        const nominees = nomineesByCategory[c.category_id] || [];
+        pushCategoryToScreen({ ...c, show_nominee: next ? 1 : 0 }, nominees);
+      }
+    } catch (e) {
+      setCategoriesError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
+    } finally {
+      setShowNomineeSaving(false);
+    }
+  }
 
   const showCategoryDetail = screen === "CATEGORY" && !!selectedCategoryId;
 
@@ -382,9 +575,9 @@ function LedDashboard({
     } else if (next === "QR") {
       void setYlfPage(eventId, "qr");
     } else if (next === "WINNER") {
-      void setYlfPage(eventId, "winner");
+      pushWinnersToScreen(categories);
     }
-  }, [eventId]);
+  }, [categories, eventId, pushWinnersToScreen]);
 
   const [adminCategories, setAdminCategories] = React.useState<Category[]>([]);
   const [adminLoading, setAdminLoading] = React.useState(false);
@@ -675,18 +868,9 @@ function LedDashboard({
       }
 
       setGraphActiveCategoryId(null);
-      void setYlfCategory(eventId, {
-        id: c.category_id,
-        name: c.name,
-        nominees: nominees.map((n) => ({
-          id: n.nominee_id,
-          name: n.name,
-          photo: n.photo ?? "",
-          votes: Number(n.votes ?? 0),
-        })),
-      });
+      pushCategoryToScreen(c, nominees);
     },
-    [eventId, fetchAllNominees, nomineesByCategory],
+    [pushCategoryToScreen, fetchAllNominees, nomineesByCategory],
   );
 
   return (
@@ -810,6 +994,50 @@ function LedDashboard({
                     <div className="panelTitle" style={{ fontSize: 14 }}>
                       Nominees
                     </div>
+                    {selectedCategory ? (
+                      <>
+                        <label
+                          className={styles.adminApproveSwitch}
+                          title={selectedShowNominees ? "Nominees visible on screen" : "Nominees hidden on screen"}
+                        >
+                          <input
+                            type="checkbox"
+                            role="switch"
+                            checked={selectedShowNominees}
+                            disabled={showNomineeSaving}
+                            onChange={(e) => void toggleCategoryShowNominee(selectedCategory, e.target.checked)}
+                            aria-label={
+                              selectedShowNominees ? "Hide nominees on screen" : "Show nominees on screen"
+                            }
+                          />
+                          <span className={styles.adminApproveTrack} aria-hidden />
+                          <span>Show nominee</span>
+                        </label>
+                        <label
+                          className={styles.adminApproveSwitch}
+                          title={
+                            categoryDeclaresResult(selectedCategory, eventDeclareResult)
+                              ? "Result declared"
+                              : "Result not declared"
+                          }
+                        >
+                          <input
+                            type="checkbox"
+                            role="switch"
+                            checked={selectedCategory.declare_result === true || selectedCategory.declare_result === 1}
+                            disabled={declareResultSaving || eventDeclareResult}
+                            onChange={(e) => void toggleCategoryDeclareResult(selectedCategory, e.target.checked)}
+                            aria-label={
+                              selectedCategory.declare_result === true || selectedCategory.declare_result === 1
+                                ? "Undeclare category result"
+                                : "Declare category result"
+                            }
+                          />
+                          <span className={styles.adminApproveTrack} aria-hidden />
+                          <span>Declare result</span>
+                        </label>
+                      </>
+                    ) : null}
                     <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                       <button
                         type="button"
@@ -822,12 +1050,8 @@ function LedDashboard({
                           void setYlfGraph(eventId, {
                             id: selectedCategory.category_id,
                             name: selectedCategory.name,
-                            nominees: selectedNominees.map((n) => ({
-                              id: n.nominee_id,
-                              name: n.name,
-                              photo: n.photo ?? "",
-                              votes: Number(n.votes ?? 0),
-                            })),
+                            showNominee: selectedShowNominees,
+                            nominees: nomineesForFirebase(selectedNominees),
                           });
                           setGraphActiveCategoryId(selectedCategory.category_id);
                         }}
@@ -856,12 +1080,8 @@ function LedDashboard({
                             void setYlfCategory(eventId, {
                               id: selectedCategory.category_id,
                               name: selectedCategory.name,
-                              nominees: selectedNominees.map((n) => ({
-                                id: n.nominee_id,
-                                name: n.name,
-                                photo: n.photo ?? "",
-                                votes: Number(n.votes ?? 0),
-                              })),
+                              showNominee: selectedShowNominees,
+                              nominees: nomineesForFirebase(selectedNominees),
                             });
                             setGraphActiveCategoryId(null);
                           }}
@@ -940,30 +1160,44 @@ function LedDashboard({
 
         {screen === "WINNER" ? (
           <section aria-label="Winners" style={{ width: "100%" }}>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
               <div className={styles.sectionTitle}>Winners</div>
-              <div className="panelMeta">
-                {categoriesLoading
-                  ? "Loading..."
-                  : categoriesError
-                    ? "Failed"
-                    : `${categories.filter((c) => c.winner_nominee_id != null && Number(c.winner_nominee_id) > 0).length} declared`}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <label
+                  className={styles.adminApproveSwitch}
+                  title={eventDeclareResult ? "All category results declared" : "Declare all category results"}
+                >
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    checked={eventDeclareResult}
+                    disabled={declareResultSaving}
+                    onChange={(e) => void toggleEventDeclareResult(e.target.checked)}
+                    aria-label={eventDeclareResult ? "Undeclare all results" : "Declare all results"}
+                  />
+                  <span className={styles.adminApproveTrack} aria-hidden />
+                  <span>Declare all results</span>
+                </label>
+                <div className="panelMeta">
+                  {categoriesLoading
+                    ? "Loading..."
+                    : categoriesError
+                      ? "Failed"
+                      : `${visibleWinnerCategories.length} declared`}
+                </div>
               </div>
             </div>
 
             {categoriesError ? <div className="error" style={{ marginTop: 12 }}>Error: {categoriesError}</div> : null}
 
-            {!categoriesLoading && !categoriesError &&
-            categories.filter((c) => c.winner_nominee_id != null && Number(c.winner_nominee_id) > 0).length === 0 ? (
+            {!categoriesLoading && !categoriesError && visibleWinnerCategories.length === 0 ? (
               <div className="hint" style={{ marginTop: 16 }}>
-                No winners yet — declare a winner per category in Admin.
+                No declared results yet — set a winner in Admin and turn on Declare result (category) or Declare all results (event).
               </div>
             ) : null}
 
             <div className={styles.winnerCelebrateGrid}>
-              {categories
-                .filter((c) => c.winner_nominee_id != null && Number(c.winner_nominee_id) > 0)
-                .map((c) => {
+              {visibleWinnerCategories.map((c) => {
                   const nominees = nomineesByCategory[c.category_id] || [];
                   const nomineesLoading = nomineesLoadingByCategory[c.category_id] || false;
                   const nomineesError = nomineesErrorByCategory[c.category_id] || null;
@@ -1012,6 +1246,33 @@ function LedDashboard({
                 {homeEvent.name}
                 {adminLoading ? " • Working..." : ""}
               </div>
+            </div>
+
+            <div style={{ marginTop: 12 }} className="panel">
+              <div className="panelHeader" style={{ marginBottom: 10 }}>
+                <div className="panelTitle" style={{ fontSize: 14 }}>
+                  Event status
+                </div>
+                <div className="panelMeta">{eventIsLive ? "Live on site" : "Not live"}</div>
+              </div>
+              <label
+                className={styles.adminApproveSwitch}
+                title={eventIsLive ? "Event is live" : "Make event live"}
+              >
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={eventIsLive}
+                  disabled={isLiveSaving}
+                  onChange={(e) => void toggleEventIsLive(e.target.checked)}
+                  aria-label={eventIsLive ? "Take event offline" : "Go live"}
+                />
+                <span className={styles.adminApproveTrack} aria-hidden />
+                <span>Go live</span>
+              </label>
+              <p className="hint" style={{ marginTop: 10, marginBottom: 0 }}>
+                When live, public and private event pages show categories, nominees, voting, and declared winners.
+              </p>
             </div>
 
             <div style={{ marginTop: 12 }} className="panel">

@@ -77,8 +77,8 @@ export default function PublicEventsPage() {
             <p className="hxError">{error}</p>
           ) : events.length === 0 ? (
             <p className="hxMuted">
-              No public events right now. Organisers can{" "}
-              <Link href={withBasePath("/admin")}>open the dashboard</Link> to publish one.
+              No live public events right now. Organisers can{" "}
+              <Link href={withBasePath("/admin")}>open the dashboard</Link> and go live from Actions.
             </p>
           ) : (
             <PublicEventsList events={events} apiOrigin={apiOrigin} />

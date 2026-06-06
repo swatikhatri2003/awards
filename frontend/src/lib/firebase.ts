@@ -57,6 +57,16 @@ export type YlfNominee = {
   votes: number;
 };
 
+export type YlfWinnerEntry = {
+  categoryId: number;
+  categoryName: string;
+  nominee: {
+    id: number;
+    name: string;
+    photo: string;
+  };
+};
+
 export type YlfState = {
   page?: YlfPage;
   timer?: {
@@ -68,8 +78,10 @@ export type YlfState = {
   category?: {
     id: number;
     name: string;
+    showNominee?: boolean;
     nominees?: Record<string, YlfNominee> | YlfNominee[];
   };
+  winners?: Record<string, YlfWinnerEntry> | YlfWinnerEntry[];
 };
 
 export function subscribeYlf(
@@ -107,20 +119,24 @@ export async function setYlfNomineeVotes(
 async function writeYlfCategory(
   eventId: number,
   page: Extract<YlfPage, "category" | "graph">,
-  category: { id: number; name: string; nominees: YlfNominee[] },
+  category: { id: number; name: string; nominees: YlfNominee[]; showNominee?: boolean },
 ): Promise<void> {
   const start = Date.now();
   try {
     const database = getRtdb();
-    const nomineesByKey = category.nominees.reduce<Record<string, YlfNominee>>((acc, n) => {
-      acc[String(n.id)] = n;
-      return acc;
-    }, {});
+    const showNominee = category.showNominee !== false;
+    const nomineesByKey = showNominee
+      ? category.nominees.reduce<Record<string, YlfNominee>>((acc, n) => {
+          acc[String(n.id)] = n;
+          return acc;
+        }, {})
+      : {};
     await set(ref(database, ylfEventPath(eventId)), {
       page,
       category: {
         id: category.id,
         name: category.name,
+        showNominee,
         nominees: nomineesByKey,
       },
     });
@@ -139,6 +155,7 @@ export function setYlfCategory(
     id: number;
     name: string;
     nominees: YlfNominee[];
+    showNominee?: boolean;
   },
 ): Promise<void> {
   return writeYlfCategory(eventId, "category", category);
@@ -150,6 +167,7 @@ export function setYlfGraph(
     id: number;
     name: string;
     nominees: YlfNominee[];
+    showNominee?: boolean;
   },
 ): Promise<void> {
   return writeYlfCategory(eventId, "graph", category);
@@ -173,6 +191,27 @@ export async function setYlfTimer(
     );
   } catch (err) {
     console.error(`[FIREBASE] Failed to set timer for event ${eventId}:`, err);
+    throw err;
+  }
+}
+
+export async function setYlfWinners(eventId: number, winners: YlfWinnerEntry[]): Promise<void> {
+  const start = Date.now();
+  try {
+    const database = getRtdb();
+    const winnersByKey = winners.reduce<Record<string, YlfWinnerEntry>>((acc, w) => {
+      acc[String(w.categoryId)] = w;
+      return acc;
+    }, {});
+    await set(ref(database, ylfEventPath(eventId)), {
+      page: "winner",
+      winners: winnersByKey,
+    });
+    console.log(
+      `[FIREBASE] event ${eventId} -> page="winner", winners=${winners.length} in ${Date.now() - start}ms`,
+    );
+  } catch (err) {
+    console.error(`[FIREBASE] Failed to set winners for event ${eventId}:`, err);
     throw err;
   }
 }

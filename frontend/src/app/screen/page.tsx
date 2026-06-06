@@ -3,7 +3,7 @@
 import React, { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import styles from "./screen.module.css";
-import { subscribeYlf, type YlfNominee, type YlfState } from "@/lib/firebase";
+import { subscribeYlf, type YlfNominee, type YlfState, type YlfWinnerEntry } from "@/lib/firebase";
 import QRCode from "qrcode";
 import { withBasePath } from "../_lib/basePath";
 import { getPublicApiBase } from "../_lib/publicApiBase";
@@ -111,6 +111,58 @@ function QrStage({ eventId }: { eventId: number }) {
   );
 }
 
+function normalizeWinners(
+  winners: NonNullable<YlfState["winners"]>,
+): YlfWinnerEntry[] {
+  if (!winners) return [];
+  if (Array.isArray(winners)) return winners.filter(Boolean);
+  return Object.values(winners).filter(Boolean);
+}
+
+function WinnerStage({
+  apiOrigin,
+  winners,
+}: {
+  apiOrigin: string;
+  winners: YlfWinnerEntry[];
+}) {
+  return (
+    <section aria-label="Winners">
+      <div className={styles.titleWrap}>
+        <h1 className={styles.title}>Winners</h1>
+        <hr className={styles.titleRule} />
+      </div>
+
+      {winners.length === 0 ? (
+        <div className={styles.empty}>No declared results yet.</div>
+      ) : (
+        <div className={styles.winnerGrid}>
+          {winners.map((w) => {
+            const src = resolveNomineePhotoUrl(apiOrigin, w.nominee.photo) || FALLBACK_PHOTO;
+            return (
+              <article key={w.categoryId} className={styles.winnerCard}>
+                <div className={styles.winnerCategory}>{w.categoryName}</div>
+                <div className={styles.winnerPhotoWrap}>
+                  <img
+                    className={styles.winnerPhoto}
+                    src={src}
+                    alt={w.nominee.name}
+                    loading="lazy"
+                    onError={(e) => {
+                      e.currentTarget.src = ERROR_PHOTO;
+                    }}
+                  />
+                </div>
+                <div className={styles.winnerName}>{w.nominee.name}</div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function CategoryStage({
   apiOrigin,
   category,
@@ -118,7 +170,8 @@ function CategoryStage({
   apiOrigin: string;
   category: NonNullable<YlfState["category"]>;
 }) {
-  const nominees = normalizeNominees(category.nominees);
+  const showNominees = category.showNominee !== false;
+  const nominees = showNominees ? normalizeNominees(category.nominees) : [];
 
   return (
     <section aria-label="Category">
@@ -131,7 +184,7 @@ function CategoryStage({
         </span> */}
       </div>
 
-      {nominees.length === 0 ? (
+      {!showNominees ? null : nominees.length === 0 ? (
         <div className={styles.empty}>No nominees in this category.</div>
       ) : (
         <div className={styles.grid}>
@@ -335,6 +388,8 @@ function ScreenView({ apiBase, eventId }: { apiBase: string; eventId: number }) 
             <CategoryStage apiOrigin={apiOrigin} category={state.category} />
           ) : page === "graph" && state?.category ? (
             <GraphStage apiOrigin={apiOrigin} category={state.category} />
+          ) : page === "winner" ? (
+            <WinnerStage apiOrigin={apiOrigin} winners={normalizeWinners(state?.winners ?? [])} />
           ) : (
             <HomeStage photoSrc={homeBanner.photoSrc} alt={homeBanner.name} />
           )}

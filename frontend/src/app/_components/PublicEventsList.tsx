@@ -37,6 +37,7 @@ export function PublicEventsList(props: { events: HomePublicEvent[]; apiOrigin: 
                     {desc || "No description"}
                   </p>
                   <span className="hxEventGo">View event</span>
+                  <span className="hxEventLiveTag">Live</span>
                 </div>
               </Link>
             </Reveal>

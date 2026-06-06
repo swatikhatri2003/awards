@@ -277,6 +277,10 @@ const adminEventFieldsSchema = z.object({
   /** ISO datetime strings; both empty = no voting window restriction. */
   start_time: z.string().optional(),
   end_time: z.string().optional(),
+  /** 1 = declare results for all categories in this event. */
+  declare_result: z.coerce.number().int().min(0).max(1).optional(),
+  /** 1 = event is live (public detail, voting, home listing). */
+  is_live: z.coerce.number().int().min(0).max(1).optional(),
 });
 
 function refineEventVotingWindow(
@@ -669,7 +673,9 @@ app.get("/api/admin/events", async (req, res) => {
   if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
   try {
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT event_id, title, description, image, admin_id, is_private, start_time, end_time
+      `SELECT event_id, title, description, image, admin_id, is_private, start_time, end_time,
+              COALESCE(declare_result, 0) AS declare_result,
+              COALESCE(is_live, 0) AS is_live
        FROM events
        WHERE admin_id = :aid
        ORDER BY event_id DESC`,
@@ -727,7 +733,10 @@ app.post("/api/admin/events", async (req, res) => {
     // @ts-expect-error mysql2
     const eventId = Number(result?.insertId ?? 0);
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT event_id, title, description, image, admin_id, is_private, start_time, end_time FROM events WHERE event_id = :id LIMIT 1`,
+      `SELECT event_id, title, description, image, admin_id, is_private, start_time, end_time,
+              COALESCE(declare_result, 0) AS declare_result,
+              COALESCE(is_live, 0) AS is_live
+       FROM events WHERE event_id = :id LIMIT 1`,
       { id: eventId },
     );
     return res.json({ ok: true, event: rows[0] ?? null });
@@ -792,6 +801,14 @@ app.patch("/api/admin/events/:eventId", async (req, res) => {
       params.start_time = startTrim ? new Date(startTrim) : null;
       params.end_time = endTrim ? new Date(endTrim) : null;
     }
+    if (d.declare_result !== undefined) {
+      updates.push("declare_result = :declare_result");
+      params.declare_result = d.declare_result ? 1 : 0;
+    }
+    if (d.is_live !== undefined) {
+      updates.push("is_live = :is_live");
+      params.is_live = d.is_live ? 1 : 0;
+    }
 
     if (!updates.length) {
       return res.status(400).json({ ok: false, error: "NO_CHANGES" });
@@ -799,7 +816,10 @@ app.patch("/api/admin/events/:eventId", async (req, res) => {
 
     await db.execute(`UPDATE events SET ${updates.join(", ")} WHERE event_id = :event_id`, params as any);
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT event_id, title, description, image, admin_id, is_private, start_time, end_time FROM events WHERE event_id = :id LIMIT 1`,
+      `SELECT event_id, title, description, image, admin_id, is_private, start_time, end_time,
+              COALESCE(declare_result, 0) AS declare_result,
+              COALESCE(is_live, 0) AS is_live
+       FROM events WHERE event_id = :id LIMIT 1`,
       { id: eventId },
     );
     return res.json({ ok: true, event: rows[0] ?? null });
@@ -839,7 +859,9 @@ app.get("/api/events/:eventId", async (req, res) => {
   }
   try {
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT event_id, title, description, image, is_private, start_time, end_time
+      `SELECT event_id, title, description, image, is_private, start_time, end_time,
+              COALESCE(declare_result, 0) AS declare_result,
+              COALESCE(is_live, 0) AS is_live
        FROM events
        WHERE event_id = :id
        LIMIT 1`,
@@ -860,7 +882,7 @@ app.get("/api/public/events", async (_req, res) => {
     const [rows] = await db.execute<RowDataPacket[]>(
       `SELECT event_id, title, description, image
        FROM events
-       WHERE IFNULL(is_private, 0) = 0
+       WHERE IFNULL(is_private, 0) = 0 AND COALESCE(is_live, 0) = 1
        ORDER BY event_id DESC`,
     );
     return res.json({ ok: true, events: rows });
@@ -880,6 +902,14 @@ function eventCategoryWhere(eventId?: number, tableAlias?: string) {
   return { whereSql: `WHERE ${col} = :event_id`, params: { event_id: eventId } as any };
 }
 
+async function eventIsLive(eventId: number): Promise<boolean> {
+  const [rows] = await db.execute<RowDataPacket[]>(
+    `SELECT COALESCE(is_live, 0) AS is_live FROM events WHERE event_id = :event_id LIMIT 1`,
+    { event_id: eventId },
+  );
+  return Number(rows[0]?.is_live) === 1;
+}
+
 app.get("/api/categories", async (req, res) => {
   const parsedQuery = eventIdQuerySchema.safeParse(req.query);
   if (!parsedQuery.success || parsedQuery.data.eventId === undefined) {
@@ -891,9 +921,21 @@ app.get("/api/categories", async (req, res) => {
   }
   const eventId = parsedQuery.data.eventId;
   try {
+    const admin = await loadAdminFromRequest(req);
+    const adminView =
+      !!admin && (await assertAdminOwnsEvent(admin.adminId, eventId));
+    if (!adminView && !(await eventIsLive(eventId))) {
+      return res.status(403).json({
+        ok: false,
+        error: "EVENT_NOT_LIVE",
+        message: "This event is not live yet.",
+      });
+    }
     const { whereSql, params } = eventCategoryWhere(eventId);
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT category_id, name, winner_nominee_id, event_id
+      `SELECT category_id, name, winner_nominee_id, event_id,
+              COALESCE(show_nominee, 0) AS show_nominee,
+              COALESCE(declare_result, 0) AS declare_result
        FROM category
        ${whereSql}
        ORDER BY category_id ASC`,
@@ -920,6 +962,13 @@ app.get("/api/nominees", async (req, res) => {
     const admin = await loadAdminFromRequest(req);
     const adminView =
       !!admin && (await assertAdminOwnsEvent(admin.adminId, eventId));
+    if (!adminView && !(await eventIsLive(eventId))) {
+      return res.status(403).json({
+        ok: false,
+        error: "EVENT_NOT_LIVE",
+        message: "This event is not live yet.",
+      });
+    }
     const { whereSql, params } = eventCategoryWhere(eventId, "c");
     const approvalSql = adminView ? "" : " AND COALESCE(n.is_approved, 0) = 1";
     const [rows] = await db.execute<RowDataPacket[]>(
@@ -971,6 +1020,8 @@ const adminCreateCategorySchema = z.object({
 const adminUpdateCategorySchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   winner_nominee_id: z.coerce.number().int().positive().nullable().optional(),
+  show_nominee: z.coerce.number().int().min(0).max(1).optional(),
+  declare_result: z.coerce.number().int().min(0).max(1).optional(),
 });
 
 async function ensureCategoryInEvent(categoryId: number, eventId: number) {
@@ -1005,7 +1056,9 @@ app.post("/api/admin/categories", async (req, res) => {
     // @ts-expect-error mysql2 result shape varies by config
     const id = Number(result?.insertId ?? 0);
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT category_id, name, winner_nominee_id
+      `SELECT category_id, name, winner_nominee_id,
+              COALESCE(show_nominee, 0) AS show_nominee,
+              COALESCE(declare_result, 0) AS declare_result
        FROM category
        WHERE category_id = :category_id
        LIMIT 1`,
@@ -1055,13 +1108,23 @@ app.patch("/api/admin/categories/:categoryId", async (req, res) => {
       updates.push("winner_nominee_id = :winner_nominee_id");
       params.winner_nominee_id = parsed.data.winner_nominee_id ?? null;
     }
+    if (parsed.data.show_nominee !== undefined) {
+      updates.push("show_nominee = :show_nominee");
+      params.show_nominee = parsed.data.show_nominee ? 1 : 0;
+    }
+    if (parsed.data.declare_result !== undefined) {
+      updates.push("declare_result = :declare_result");
+      params.declare_result = parsed.data.declare_result ? 1 : 0;
+    }
     if (!updates.length) {
       return res.status(400).json({ ok: false, error: "NO_CHANGES" });
     }
 
     await db.execute(`UPDATE category SET ${updates.join(", ")} WHERE category_id = :category_id`, params as any);
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT category_id, name, winner_nominee_id
+      `SELECT category_id, name, winner_nominee_id,
+              COALESCE(show_nominee, 0) AS show_nominee,
+              COALESCE(declare_result, 0) AS declare_result
        FROM category
        WHERE category_id = :category_id
        LIMIT 1`,
@@ -1332,7 +1395,7 @@ app.post("/api/nominees/:nomineeId/vote", async (req, res) => {
     const catid = Number(nomRow.category_id);
     if (Number.isFinite(catid) && catid > 0) {
       const [catEventRows] = await db.execute<RowDataPacket[]>(
-        `SELECT c.event_id, e.start_time, e.end_time
+        `SELECT c.event_id, e.start_time, e.end_time, COALESCE(e.is_live, 0) AS is_live
          FROM category c
          LEFT JOIN events e ON e.event_id = c.event_id
          WHERE c.category_id = :catid
@@ -1340,6 +1403,13 @@ app.post("/api/nominees/:nomineeId/vote", async (req, res) => {
         { catid },
       );
       const catEv = catEventRows[0];
+      if (catEv && catEv.event_id != null && Number(catEv.is_live) !== 1) {
+        return res.status(403).json({
+          ok: false,
+          error: "EVENT_NOT_LIVE",
+          message: "This event is not live yet.",
+        });
+      }
       if (
         catEv &&
         catEv.event_id != null &&
@@ -1617,7 +1687,7 @@ app.post("/api/votes", async (req, res) => {
     }
 
     const [catEventRows] = await db.execute<RowDataPacket[]>(
-      `SELECT c.event_id, e.start_time, e.end_time
+      `SELECT c.event_id, e.start_time, e.end_time, COALESCE(e.is_live, 0) AS is_live
        FROM category c
        LEFT JOIN events e ON e.event_id = c.event_id
        WHERE c.category_id = :catid
@@ -1625,6 +1695,13 @@ app.post("/api/votes", async (req, res) => {
       { catid },
     );
     const catEv = catEventRows[0];
+    if (catEv && catEv.event_id != null && Number(catEv.is_live) !== 1) {
+      return res.status(403).json({
+        ok: false,
+        error: "EVENT_NOT_LIVE",
+        message: "This event is not live yet.",
+      });
+    }
     if (
       catEv &&
       catEv.event_id != null &&
@@ -1729,6 +1806,49 @@ async function ensureNomineeIsApprovedColumn(): Promise<void> {
   }
 }
 
+/** Adds category show_nominee flag when missing. */
+async function ensureCategoryShowNomineeColumn(): Promise<void> {
+  try {
+    await db.execute(
+      `ALTER TABLE category ADD COLUMN show_nominee TINYINT(1) NOT NULL DEFAULT 0`,
+    );
+  } catch (e: unknown) {
+    const err = e as { errno?: number; code?: string; message?: string };
+    if (err.errno === 1060 || err.code === "ER_DUP_FIELDNAME") return;
+    if (/duplicate column name/i.test(String(err.message ?? ""))) return;
+    throw e;
+  }
+}
+
+/** Adds result declaration flags when missing. */
+async function ensureDeclareResultColumns(): Promise<void> {
+  for (const sql of [
+    `ALTER TABLE events ADD COLUMN declare_result TINYINT(1) NOT NULL DEFAULT 0`,
+    `ALTER TABLE category ADD COLUMN declare_result TINYINT(1) NOT NULL DEFAULT 0`,
+  ]) {
+    try {
+      await db.execute(sql);
+    } catch (e: unknown) {
+      const err = e as { errno?: number; code?: string; message?: string };
+      if (err.errno === 1060 || err.code === "ER_DUP_FIELDNAME") continue;
+      if (/duplicate column name/i.test(String(err.message ?? ""))) continue;
+      throw e;
+    }
+  }
+}
+
+/** Adds event is_live flag when missing. */
+async function ensureEventIsLiveColumn(): Promise<void> {
+  try {
+    await db.execute(`ALTER TABLE events ADD COLUMN is_live TINYINT(1) NOT NULL DEFAULT 0`);
+  } catch (e: unknown) {
+    const err = e as { errno?: number; code?: string; message?: string };
+    if (err.errno === 1060 || err.code === "ER_DUP_FIELDNAME") return;
+    if (/duplicate column name/i.test(String(err.message ?? ""))) return;
+    throw e;
+  }
+}
+
 /** Adds voting window columns when missing. */
 async function ensureEventsVotingWindowColumns(): Promise<void> {
   for (const sql of [
@@ -1749,6 +1869,9 @@ async function ensureEventsVotingWindowColumns(): Promise<void> {
 ensureEventsIsPrivateColumn()
   .then(() => ensureEventsVotingWindowColumns())
   .then(() => ensureNomineeIsApprovedColumn())
+  .then(() => ensureCategoryShowNomineeColumn())
+  .then(() => ensureDeclareResultColumns())
+  .then(() => ensureEventIsLiveColumn())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`API listening on http://localhost:${PORT}`);

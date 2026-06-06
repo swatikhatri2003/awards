@@ -437,3 +437,55 @@
     display: none;
   }
 }
+
+.winnerGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: clamp(14px, 1.8vw, 28px);
+  max-width: 1500px;
+  margin: 0 auto;
+  padding-bottom: clamp(20px, 4vh, 60px);
+}
+
+.winnerCard {
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(214, 180, 106, 0.22);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+}
+
+.winnerCategory {
+  font-size: clamp(11px, 1vw, 13px);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+  padding: 14px 16px 8px;
+}
+
+.winnerPhotoWrap {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  border-top: 1px solid rgba(214, 180, 106, 0.18);
+  border-bottom: 1px solid rgba(214, 180, 106, 0.18);
+}
+
+.winnerPhoto {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.winnerName {
+  padding: 14px 16px 18px;
+  font-size: clamp(18px, 2vw, 26px);
+  font-weight: 700;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.96);
+}
