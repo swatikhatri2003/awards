@@ -1396,10 +1396,10 @@ function AdminContent() {
               <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("nominees", ev.event_id)}>
                 Nominees
               </button>
-              <a className="btn btn-ghost" href={withBasePath(`/awards_f/actions?eventId=${ev.event_id}`)} style={{ textDecoration: "none" }}>
+              <a className="btn btn-ghost" href={withBasePath(`/actions?eventId=${ev.event_id}`)} style={{ textDecoration: "none" }}>
                 LED controls
               </a>
-              <a className="btn btn-ghost" href={withBasePath(`/awards_f/screen?eventId=${ev.event_id}`)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+              <a className="btn btn-ghost" href={withBasePath(`/screen?eventId=${ev.event_id}`)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
                 Open LED screen
               </a>
               <button

@@ -118,8 +118,8 @@ export function HomeExperience(props: {
             <h2 className="hxH2">Public events</h2>
             <p className="hxSub">
               {hasMoreEvents
-                ? `Showing ${HOME_EVENTS_PREVIEW_LIMIT} of ${events.length} live events. Open Vote for the full list.`
-                : "Live events — tap through to register, view nominees, and vote."}
+                ? `Showing ${HOME_EVENTS_PREVIEW_LIMIT} of ${events.length}. Open Vote for the full list.`
+                : "Tap through to view event details. Live voting is available only on live events."}
             </p>
           </Reveal>
 
@@ -129,8 +129,9 @@ export function HomeExperience(props: {
             <p className="hxError">{eventsError}</p>
           ) : events.length === 0 ? (
             <p className="hxMuted">
-              No live public events right now. Organisers can{" "}
-              <Link href={withBasePath("/admin")}>open the dashboard</Link> and go live from Actions.
+              No public events right now. Organisers can{" "}
+              <Link href={withBasePath("/admin")}>open the dashboard</Link> to publish one. Private events never appear
+              here.
             </p>
           ) : (
             <>

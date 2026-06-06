@@ -1271,7 +1271,7 @@ function LedDashboard({
                 <span>Go live</span>
               </label>
               <p className="hint" style={{ marginTop: 10, marginBottom: 0 }}>
-                When live, public and private event pages show categories, nominees, voting, and declared winners.
+                When live, voting opens on the event page. Categories and nominees are always visible on the detail page.
               </p>
             </div>
 
@@ -1288,6 +1288,9 @@ function LedDashboard({
                 </a>
                 <a className="linkBtn" href={withBasePath(`/screen?eventId=${eventId}`)} target="_blank" rel="noopener noreferrer">
                   Open LED
+                </a>
+                <a className="linkBtn" href={withBasePath(`/admin?eventId=${eventId}`)}>
+                  Manage event
                 </a>
               </div>
             </div>

@@ -7,6 +7,7 @@ export type HomePublicEvent = {
   title: string | null;
   description: string | null;
   image: string | null;
+  is_live?: number | boolean | null;
 };
 
 export const HOME_EVENTS_PREVIEW_LIMIT = 3;

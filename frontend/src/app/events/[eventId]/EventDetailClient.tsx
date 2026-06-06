@@ -134,7 +134,7 @@ function EventDetailContent() {
   }, [apiBase, eventId]);
 
   React.useEffect(() => {
-    if (!eventId || !event || !isLive(event)) {
+    if (!eventId || !event) {
       setCategories([]);
       setNominees([]);
       setLiveDataError(null);
@@ -158,7 +158,7 @@ function EventDetailContent() {
         setNominees(Array.isArray(nomsData?.nominees) ? nomsData.nominees : []);
       } catch (e) {
         if (!cancelled) {
-          setLiveDataError(e instanceof Error ? e.message : "LIVE_DATA_FAILED");
+          setLiveDataError(e instanceof Error ? e.message : "EVENT_DATA_FAILED");
           setCategories([]);
           setNominees([]);
         }
@@ -296,8 +296,14 @@ function EventDetailContent() {
 
                   {!live ? (
                     <p className="hxEventDetailNote">
-                      This event is not live yet. Categories, nominees, and voting will appear here once the organiser
-                      goes live from Actions.
+                      This event is not live yet — you can browse categories and nominees below. Live voting opens when
+                      the organiser goes live from Actions.
+                    </p>
+                  ) : null}
+
+                  {isPrivate && !live ? (
+                    <p className="hxEventDetailNote">
+                      This is an invite-only event. Use the registration link from your organiser to join.
                     </p>
                   ) : null}
 
@@ -331,15 +337,14 @@ function EventDetailContent() {
                 </div>
               </article>
 
-              {live ? (
-                <div className="hxEventLiveSections">
-                  {liveDataLoading ? (
-                    <p className="hxMuted hxShimmer">Loading categories and nominees…</p>
-                  ) : liveDataError ? (
-                    <p className="hxError">Could not load live event data: {liveDataError}</p>
-                  ) : (
-                    <>
-                      {winnerCategories.length > 0 ? (
+              <div className="hxEventLiveSections">
+                {liveDataLoading ? (
+                  <p className="hxMuted hxShimmer">Loading categories and nominees…</p>
+                ) : liveDataError ? (
+                  <p className="hxError">Could not load event data: {liveDataError}</p>
+                ) : (
+                  <>
+                    {winnerCategories.length > 0 ? (
                         <section className="hxEventLiveBlock" aria-labelledby="event-winners-heading">
                           <h2 id="event-winners-heading" className="hxH2 hxEventLiveHeading">
                             Declared winners
@@ -423,8 +428,7 @@ function EventDetailContent() {
                       </section>
                     </>
                   )}
-                </div>
-              ) : null}
+              </div>
             </>
           )}
         </section>

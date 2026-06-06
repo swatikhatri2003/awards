@@ -17,6 +17,7 @@ export function PublicEventsList(props: { events: HomePublicEvent[]; apiOrigin: 
         const desc = (ev.description || "").trim();
         const imgSrc = resolveEventBannerUrl(apiOrigin, ev.image);
         const detailHref = withBasePath(`/events/${ev.event_id}`);
+        const live = ev.is_live === true || ev.is_live === 1;
         return (
           <li key={ev.event_id} className="hxEventRiverItem">
             <Reveal className="hxEventWrap" delay={i * 70}>
@@ -37,7 +38,7 @@ export function PublicEventsList(props: { events: HomePublicEvent[]; apiOrigin: 
                     {desc || "No description"}
                   </p>
                   <span className="hxEventGo">View event</span>
-                  <span className="hxEventLiveTag">Live</span>
+                  {live ? <span className="hxEventLiveTag">Live</span> : null}
                 </div>
               </Link>
             </Reveal>
