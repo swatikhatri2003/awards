@@ -880,9 +880,9 @@ app.get("/api/events/:eventId", async (req, res) => {
 app.get("/api/public/events", async (_req, res) => {
   try {
     const [rows] = await db.execute<RowDataPacket[]>(
-      `SELECT event_id, title, description, image
+      `SELECT event_id, title, description, image, COALESCE(is_live, 0) AS is_live
        FROM events
-       WHERE IFNULL(is_private, 0) = 0 AND COALESCE(is_live, 0) = 1
+       WHERE IFNULL(is_private, 0) = 0
        ORDER BY event_id DESC`,
     );
     return res.json({ ok: true, events: rows });
@@ -921,16 +921,6 @@ app.get("/api/categories", async (req, res) => {
   }
   const eventId = parsedQuery.data.eventId;
   try {
-    const admin = await loadAdminFromRequest(req);
-    const adminView =
-      !!admin && (await assertAdminOwnsEvent(admin.adminId, eventId));
-    if (!adminView && !(await eventIsLive(eventId))) {
-      return res.status(403).json({
-        ok: false,
-        error: "EVENT_NOT_LIVE",
-        message: "This event is not live yet.",
-      });
-    }
     const { whereSql, params } = eventCategoryWhere(eventId);
     const [rows] = await db.execute<RowDataPacket[]>(
       `SELECT category_id, name, winner_nominee_id, event_id,
@@ -962,13 +952,6 @@ app.get("/api/nominees", async (req, res) => {
     const admin = await loadAdminFromRequest(req);
     const adminView =
       !!admin && (await assertAdminOwnsEvent(admin.adminId, eventId));
-    if (!adminView && !(await eventIsLive(eventId))) {
-      return res.status(403).json({
-        ok: false,
-        error: "EVENT_NOT_LIVE",
-        message: "This event is not live yet.",
-      });
-    }
     const { whereSql, params } = eventCategoryWhere(eventId, "c");
     const approvalSql = adminView ? "" : " AND COALESCE(n.is_approved, 0) = 1";
     const [rows] = await db.execute<RowDataPacket[]>(
