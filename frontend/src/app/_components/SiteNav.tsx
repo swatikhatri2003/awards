@@ -2,12 +2,11 @@
 
 import React from "react";
 import Link from "next/link";
-import { withBasePath } from "../_lib/basePath";
 
 const links = [
-  { href: withBasePath("/#why"), label: "Why us" },
-  { href: withBasePath("/#features"), label: "Features" },
-  { href: withBasePath("/events"), label: "Vote" },
+  { href: "/#why", label: "Why us" },
+  { href: "/#features", label: "Features" },
+  { href: "/events", label: "Vote" },
 ] as const;
 
 export function SiteNav() {
@@ -16,7 +15,7 @@ export function SiteNav() {
   return (
     <nav className="hxNav" aria-label="Primary">
       <div className={["hxNavBar", open ? "hxNavBar--open" : ""].filter(Boolean).join(" ")}>
-        <Link href={withBasePath("/")} className="hxBrand" onClick={() => setOpen(false)}>
+        <Link href="/" className="hxBrand" onClick={() => setOpen(false)}>
           <span className="hxBrandMark" aria-hidden />
           <span className="hxBrandText">Awards</span>
         </Link>
@@ -44,10 +43,10 @@ export function SiteNav() {
             ))}
           </ul>
           <div className="hxNavCta">
-            <Link className="hxGhost" href={withBasePath("/admin")} onClick={() => setOpen(false)}>
+            <Link className="hxGhost" href="/admin" onClick={() => setOpen(false)}>
               Admin
             </Link>
-            <Link className="hxPillBtn" href={withBasePath("/admin")} onClick={() => setOpen(false)}>
+            <Link className="hxPillBtn" href="/admin" onClick={() => setOpen(false)}>
               Run an event
             </Link>
           </div>

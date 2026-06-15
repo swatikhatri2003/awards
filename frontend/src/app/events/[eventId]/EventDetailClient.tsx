@@ -4,7 +4,6 @@ import React, { Suspense } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { SiteNav } from "../../_components/SiteNav";
-import { withBasePath } from "../../_lib/basePath";
 import { getPublicApiBase, getUploadsOrigin } from "../../_lib/publicApiBase";
 import { resolveEventBannerUrl, resolveNomineePhotoUrl } from "../../_lib/resolveImageUrl";
 
@@ -39,6 +38,12 @@ type NomineeRow = {
 
 const NOMINEE_FALLBACK =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Crect width='100%25' height='100%25' fill='%23e2e8f0'/%3E%3C/svg%3E";
+
+function isLikelyFilePath(s: string): boolean {
+  const t = s.trim();
+  if (!t) return false;
+  return /[A-Za-z]:\\/.test(t) || (/[\\/]/.test(t) && /workspace|Users|\.tsx|\.jsx|nextjs/i.test(t));
+}
 
 function formatWhen(iso: string | null | undefined): string {
   if (iso == null || String(iso).trim() === "") return "";
@@ -172,7 +177,8 @@ function EventDetailContent() {
   }, [apiBase, event, eventId]);
 
   const title = (event?.title || "").trim() || "Untitled event";
-  const desc = (event?.description || "").trim();
+  const rawDesc = (event?.description || "").trim();
+  const desc = rawDesc && !isLikelyFilePath(rawDesc) ? rawDesc : "";
   const imgSrc = event ? resolveEventBannerUrl(apiOrigin, event.image) : "";
   const isPrivate = event?.is_private === true || event?.is_private === 1;
   const live = isLive(event);
@@ -180,8 +186,8 @@ function EventDetailContent() {
   const startLabel = formatWhen(event?.start_time);
   const endLabel = formatWhen(event?.end_time);
   const hasWindow = Boolean(startLabel && endLabel);
-  const registerHref = withBasePath(`/register?eventId=${eventId}`);
-  const voteHref = withBasePath("/usersvote");
+  const registerHref = `/register?eventId=${eventId}`;
+  const voteHref = "/usersvote";
 
   const nomineesByCategory = React.useMemo(() => {
     const map = new Map<number, NomineeRow[]>();
@@ -213,11 +219,11 @@ function EventDetailContent() {
         <SiteNav />
         <div className="hxEventsPageHero">
           <nav className="hxEventDetailBack" aria-label="Breadcrumb">
-            <Link href={withBasePath("/")}>← Home</Link>
+            <Link href="/">← Home</Link>
             <span className="hxEventDetailBackSep" aria-hidden>·</span>
             {!isPrivate ? (
               <>
-                <Link href={withBasePath("/events")}>All events</Link>
+                <Link href="/events">All events</Link>
                 <span className="hxEventDetailBackSep" aria-hidden>·</span>
               </>
             ) : null}
@@ -233,21 +239,29 @@ function EventDetailContent() {
           ) : error || !event ? (
             <div className="hxEventDetailEmpty">
               <p className="hxError">{error || "Event not found."}</p>
-              <Link href={withBasePath("/events")} className="hxPillBtn">
+              <Link href="/events" className="hxPillBtn">
                 Browse events
               </Link>
             </div>
           ) : (
-            <>
-              <article className="hxEventDetail">
+            <article className="hxEventDetail">
+              <div className="hxEventDetailHero">
                 <div className="hxEventDetailVisual">
                   {imgSrc ? (
-                    <img src={imgSrc} alt="" className="hxEventDetailImg" />
-                  ) : (
-                    <div className="hxEventDetailPh" aria-hidden>
-                      {title.slice(0, 2).toUpperCase()}
-                    </div>
-                  )}
+                    <img
+                      src={imgSrc}
+                      alt=""
+                      className="hxEventDetailImg"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                        const ph = e.currentTarget.nextElementSibling;
+                        if (ph instanceof HTMLElement) ph.hidden = false;
+                      }}
+                    />
+                  ) : null}
+                  <div className="hxEventDetailPh" aria-hidden hidden={Boolean(imgSrc)}>
+                    {title.slice(0, 2).toUpperCase()}
+                  </div>
                 </div>
 
                 <div className="hxEventDetailBody">
@@ -296,20 +310,19 @@ function EventDetailContent() {
 
                   {!live ? (
                     <p className="hxEventDetailNote">
-                      This event is not live yet — you can browse categories and nominees below. Live voting opens when
-                      the organiser goes live from Actions.
+                      Not live yet — browse nominees below. Voting opens when the organiser goes live.
                     </p>
                   ) : null}
 
                   {isPrivate && !live ? (
                     <p className="hxEventDetailNote">
-                      This is an invite-only event. Use the registration link from your organiser to join.
+                      Invite-only — use the registration link from your organiser to join.
                     </p>
                   ) : null}
 
                   {isPrivate && live ? (
                     <p className="hxEventDetailNote">
-                      This is an invite-only event. Use the registration link from your organiser to join and vote.
+                      Invite-only — use your organiser&apos;s link to register and vote.
                     </p>
                   ) : null}
 
@@ -329,15 +342,17 @@ function EventDetailContent() {
                       </Link>
                     )}
                     {!isPrivate ? (
-                      <Link href={withBasePath("/events")} className="hxPillBtn hxPillBtn--soft">
+                      <Link href="/events" className="hxPillBtn hxPillBtn--soft">
                         More events
                       </Link>
                     ) : null}
                   </div>
                 </div>
-              </article>
+              </div>
 
-              <div className="hxEventLiveSections">
+              <div className="hxEventDetailDivider" aria-hidden />
+
+              <div className="hxEventDetailContent">
                 {liveDataLoading ? (
                   <p className="hxMuted hxShimmer">Loading categories and nominees…</p>
                 ) : liveDataError ? (
@@ -345,91 +360,93 @@ function EventDetailContent() {
                 ) : (
                   <>
                     {winnerCategories.length > 0 ? (
-                        <section className="hxEventLiveBlock" aria-labelledby="event-winners-heading">
-                          <h2 id="event-winners-heading" className="hxH2 hxEventLiveHeading">
-                            Declared winners
-                          </h2>
-                          <div className="hxEventWinnersGrid">
-                            {winnerCategories.map((c) => {
-                              const wid = Number(c.winner_nominee_id);
-                              const winner = (nomineesByCategory.get(c.category_id) || []).find(
-                                (n) => Number(n.nominee_id) === wid,
-                              );
-                              const thumb = winner?.photo
-                                ? resolveNomineePhotoUrl(apiOrigin, winner.photo)
-                                : "";
-                              return (
-                                <article key={c.category_id} className="hxEventWinnerCard">
-                                  <div className="hxEventWinnerCat">{c.name}</div>
-                                  <div className="hxEventWinnerPhotoWrap">
-                                    <img
-                                      src={thumb || NOMINEE_FALLBACK}
-                                      alt=""
-                                      className="hxEventWinnerPhoto"
-                                    />
-                                  </div>
-                                  <div className="hxEventWinnerName">{winner?.name?.trim() || "Winner"}</div>
-                                </article>
-                              );
-                            })}
-                          </div>
-                        </section>
-                      ) : null}
-
-                      <section className="hxEventLiveBlock" aria-labelledby="event-categories-heading">
-                        <h2 id="event-categories-heading" className="hxH2 hxEventLiveHeading">
-                          Categories & nominees
+                      <section className="hxEventLiveBlock" aria-labelledby="event-winners-heading">
+                        <h2 id="event-winners-heading" className="hxEventLiveHeading">
+                          Declared winners
                         </h2>
-                        {categories.length === 0 ? (
-                          <p className="hxMuted">No categories yet.</p>
-                        ) : (
-                          <div className="hxEventCatList">
-                            {categories.map((c) => {
-                              const noms = nomineesByCategory.get(c.category_id) || [];
-                              return (
-                                <article key={c.category_id} className="hxEventCatBlock">
-                                  <header className="hxEventCatHead">
-                                    <h3 className="hxEventCatTitle">{c.name}</h3>
-                                    <span className="hxEventCatMeta">
-                                      {noms.length} {noms.length === 1 ? "nominee" : "nominees"}
-                                    </span>
-                                  </header>
-                                  {noms.length === 0 ? (
-                                    <p className="hxMuted hxEventCatEmpty">No nominees to show yet.</p>
-                                  ) : (
-                                    <ul className="hxEventNomineeGrid">
-                                      {noms.map((n) => {
-                                        const thumb = n.photo
-                                          ? resolveNomineePhotoUrl(apiOrigin, n.photo)
-                                          : "";
-                                        return (
-                                          <li key={n.nominee_id} className="hxEventNomineeCard">
-                                            <img
-                                              src={thumb || NOMINEE_FALLBACK}
-                                              alt=""
-                                              className="hxEventNomineePhoto"
-                                            />
-                                            <div className="hxEventNomineeBody">
-                                              <div className="hxEventNomineeName">{n.name}</div>
-                                              {typeof n.votes === "number" ? (
-                                                <div className="hxEventNomineeVotes">{n.votes} votes</div>
-                                              ) : null}
-                                            </div>
-                                          </li>
-                                        );
-                                      })}
-                                    </ul>
-                                  )}
-                                </article>
-                              );
-                            })}
-                          </div>
-                        )}
+                        <div className="hxEventWinnersGrid">
+                          {winnerCategories.map((c) => {
+                            const wid = Number(c.winner_nominee_id);
+                            const winner = (nomineesByCategory.get(c.category_id) || []).find(
+                              (n) => Number(n.nominee_id) === wid,
+                            );
+                            const thumb = winner?.photo ? resolveNomineePhotoUrl(apiOrigin, winner.photo) : "";
+                            return (
+                              <article key={c.category_id} className="hxEventWinnerCard">
+                                <div className="hxEventWinnerCat">{c.name}</div>
+                                <div className="hxEventWinnerBody">
+                                  <img
+                                    src={thumb || NOMINEE_FALLBACK}
+                                    alt=""
+                                    className="hxEventWinnerPhoto"
+                                    onError={(e) => {
+                                      e.currentTarget.src = NOMINEE_FALLBACK;
+                                    }}
+                                  />
+                                  <div className="hxEventWinnerName">{winner?.name?.trim() || "Winner"}</div>
+                                </div>
+                              </article>
+                            );
+                          })}
+                        </div>
                       </section>
-                    </>
-                  )}
+                    ) : null}
+
+                    <section className="hxEventLiveBlock" aria-labelledby="event-categories-heading">
+                      <h2 id="event-categories-heading" className="hxEventLiveHeading">
+                        Categories & nominees
+                      </h2>
+                      {categories.length === 0 ? (
+                        <p className="hxMuted">No categories yet.</p>
+                      ) : (
+                        <div className="hxEventCatList">
+                          {categories.map((c) => {
+                            const noms = nomineesByCategory.get(c.category_id) || [];
+                            return (
+                              <article key={c.category_id} className="hxEventCatBlock">
+                                <header className="hxEventCatHead">
+                                  <h3 className="hxEventCatTitle">{c.name}</h3>
+                                  <span className="hxEventCatMeta">
+                                    {noms.length} {noms.length === 1 ? "nominee" : "nominees"}
+                                  </span>
+                                </header>
+                                {noms.length === 0 ? (
+                                  <p className="hxMuted hxEventCatEmpty">No nominees to show yet.</p>
+                                ) : (
+                                  <ul className="hxEventNomineeGrid">
+                                    {noms.map((n) => {
+                                      const thumb = n.photo ? resolveNomineePhotoUrl(apiOrigin, n.photo) : "";
+                                      return (
+                                        <li key={n.nominee_id} className="hxEventNomineeCard">
+                                          <img
+                                            src={thumb || NOMINEE_FALLBACK}
+                                            alt=""
+                                            className="hxEventNomineePhoto"
+                                            onError={(e) => {
+                                              e.currentTarget.src = NOMINEE_FALLBACK;
+                                            }}
+                                          />
+                                          <div className="hxEventNomineeBody">
+                                            <div className="hxEventNomineeName">{n.name}</div>
+                                            {typeof n.votes === "number" ? (
+                                              <div className="hxEventNomineeVotes">{n.votes} votes</div>
+                                            ) : null}
+                                          </div>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                )}
+                              </article>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </section>
+                  </>
+                )}
               </div>
-            </>
+            </article>
           )}
         </section>
       </main>
@@ -437,7 +454,7 @@ function EventDetailContent() {
       <footer className="hxFooter">
         <div className="hxFooterInner">
           <p className="hxFooterLead">
-            <Link href={withBasePath("/")}>← Back to home</Link>
+            <Link href="/">← Back to home</Link>
           </p>
         </div>
       </footer>

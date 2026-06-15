@@ -1774,18 +1774,18 @@ function ActionsGate() {
       const q = new URLSearchParams();
       q.set("next", "/actions");
       if (eventIdRaw) q.set("eventId", eventIdRaw);
-      router.replace(withBasePath(`/admin?${q.toString()}`));
+      router.replace(`/admin?${q.toString()}`);
       setGateState("fail");
       return;
     }
     if (!eventIdRaw) {
-      router.replace(withBasePath("/admin"));
+      router.replace("/admin");
       setGateState("fail");
       return;
     }
     const eid = Number(eventIdRaw);
     if (!Number.isFinite(eid) || eid <= 0) {
-      router.replace(withBasePath("/admin"));
+      router.replace("/admin");
       setGateState("fail");
       return;
     }
@@ -1794,14 +1794,14 @@ function ActionsGate() {
       const r = await fetch(`${apiBase}/admin/events`, { headers: { ...adminAuthHeader(token) } });
       const d = await r.json().catch(() => null);
       if (!r.ok) {
-        router.replace(withBasePath("/admin"));
+        router.replace("/admin");
         setGateState("fail");
         return;
       }
       const list = Array.isArray(d?.events) ? d.events : [];
       const ok = list.some((ev: { event_id?: number }) => Number(ev?.event_id) === eid);
       if (!ok) {
-        router.replace(withBasePath("/admin"));
+        router.replace("/admin");
         setGateState("fail");
         return;
       }

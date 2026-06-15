@@ -5,7 +5,6 @@ import Link from "next/link";
 import { SiteNav } from "../_components/SiteNav";
 import { PublicEventsList } from "../_components/PublicEventsList";
 import type { HomePublicEvent } from "../_components/landingUtils";
-import { withBasePath } from "../_lib/basePath";
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 
 export default function PublicEventsPage() {
@@ -78,7 +77,7 @@ export default function PublicEventsPage() {
           ) : events.length === 0 ? (
             <p className="hxMuted">
               No public events right now. Organisers can{" "}
-              <Link href={withBasePath("/admin")}>open the dashboard</Link> to publish one.
+              <Link href="/admin">open the dashboard</Link> to publish one.
             </p>
           ) : (
             <PublicEventsList events={events} apiOrigin={apiOrigin} />
@@ -89,7 +88,7 @@ export default function PublicEventsPage() {
       <footer className="hxFooter">
         <div className="hxFooterInner">
           <p className="hxFooterLead">
-            <Link href={withBasePath("/")}>← Back to home</Link>
+            <Link href="/">← Back to home</Link>
           </p>
         </div>
       </footer>

@@ -2,7 +2,7 @@
 
 import React, { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { withBasePath } from "../_lib/basePath";
+import { fullAppUrl, withBasePath } from "../_lib/basePath";
 import {
   adminAuthHeader,
   clearAdminSession,
@@ -14,6 +14,7 @@ import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 import { resolveEventBannerUrl } from "../_lib/resolveImageUrl";
 import { EventCategoriesNomineesPanel } from "./_components/EventCategoriesNomineesPanel";
 import { AdminModal } from "./_components/AdminModal";
+import switchStyles from "../actions/led-kiosk.module.css";
 
 type ApiEvent = {
   event_id: number;
@@ -24,6 +25,8 @@ type ApiEvent = {
   is_private?: number | boolean | null;
   start_time?: string | null;
   end_time?: string | null;
+  is_live?: number | boolean | null;
+  declare_result?: number | boolean | null;
 };
 
 function toDatetimeLocalValue(iso: string | null | undefined): string {
@@ -75,42 +78,33 @@ function parseDashboardFromSearchParams(searchParams: URLSearchParams): {
 
 /* ─── Styles ──────────────────────────────────────────────────────── */
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
-
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg: #e8f0fe;
-    --surface: #ffffff;
-    --surface2: #f8fafc;
+    --surface: var(--card);
+    --surface2: var(--card2);
     --surface3: #f1f5f9;
-    --border: rgba(15, 23, 42, 0.1);
     --border-hover: rgba(15, 23, 42, 0.18);
-    --accent: #2563eb;
     --accent-glow: rgba(37, 99, 235, 0.15);
     --accent-dim: rgba(37, 99, 235, 0.12);
-    --text: #0f172a;
-    --text-muted: #64748b;
-    --text-faint: #94a3b8;
+    --text-muted: var(--muted);
+    --text-faint: var(--muted2);
     --success: #059669;
     --success-dim: rgba(5, 150, 105, 0.12);
-    --danger: #dc2626;
     --danger-dim: rgba(220, 38, 38, 0.1);
     --warning: #d97706;
-    --font: 'DM Sans', sans-serif;
-    --mono: 'DM Mono', monospace;
     --radius: 10px;
     --radius-lg: 16px;
     --radius-xl: 20px;
   }
 
-  body { background: var(--bg); color: var(--text); font-family: var(--font); }
-
   .page {
     min-height: 100vh;
+    min-height: 100dvh;
+    width: 100%;
     display: flex;
     flex-direction: column;
-    background: var(--bg);
+    color: var(--text);
     color-scheme: light;
   }
 
@@ -172,7 +166,7 @@ const css = `
     border: 1px solid var(--border);
     border-radius: var(--radius);
     color: var(--text);
-    font-family: var(--font);
+    font-family: inherit;
     font-size: 14px;
     padding: 10px 14px;
     transition: border-color 0.15s, background 0.15s;
@@ -193,7 +187,7 @@ const css = `
     border-radius: var(--radius);
     color: #fff;
     cursor: pointer;
-    font-family: var(--font);
+    font-family: inherit;
     font-size: 14px;
     font-weight: 500;
     padding: 10px 18px;
@@ -225,7 +219,7 @@ const css = `
     border: none;
     color: var(--accent);
     cursor: pointer;
-    font-family: var(--font);
+    font-family: inherit;
     font-size: 13px;
     padding: 0;
     text-decoration: none;
@@ -524,7 +518,7 @@ const css = `
     border: none;
     color: var(--accent);
     cursor: pointer;
-    font-family: var(--font);
+    font-family: inherit;
     font-size: 14px;
     padding: 0;
   }
@@ -587,6 +581,27 @@ const css = `
     line-height: 1.55;
     margin-bottom: 1.25rem;
   }
+  .event-detail-controls {
+    margin: 0 0 1.25rem;
+    padding: 1rem 1.1rem;
+    background: var(--surface2);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+  .event-detail-controls-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+  .event-detail-controls-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 22px;
+    margin-bottom: 8px;
+  }
   .event-detail-actions {
     display: flex;
     gap: 8px;
@@ -639,6 +654,111 @@ const css = `
     gap: 8px;
     font-size: 13px;
     color: var(--text-muted);
+  }
+
+  @media (max-width: 720px) {
+    .dashboard {
+      padding: 1.25rem clamp(12px, 4vw, 16px) 3rem;
+    }
+
+    .topbar {
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 1.75rem;
+    }
+
+    .topbar .btn-ghost {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .section-head {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .section-head .btn {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .row-mix {
+      grid-template-columns: 1fr;
+    }
+
+    .event-card-wrap {
+      flex-direction: column;
+    }
+
+    .event-icon-btn {
+      width: 100%;
+      height: 44px;
+      align-self: stretch;
+    }
+
+    .event-detail-banner,
+    .event-detail-banner-ph {
+      height: clamp(120px, 32vw, 180px);
+    }
+
+    .event-detail-body {
+      padding: 1rem;
+    }
+
+    .event-detail-actions {
+      flex-direction: column;
+    }
+
+    .event-detail-actions .btn,
+    .event-detail-actions .btn-ghost {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .actions-row {
+      flex-direction: column;
+    }
+
+    .actions-row .btn,
+    .actions-row .btn-ghost,
+    .actions-row .btn-danger {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .event-actions {
+      flex-direction: column;
+    }
+
+    .event-actions .btn,
+    .event-actions .btn-ghost {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .auth-wrap {
+      padding: 1.5rem clamp(12px, 4vw, 16px);
+    }
+
+    .auth-card {
+      padding: 1.75rem clamp(16px, 4vw, 24px);
+    }
+
+    .panel {
+      padding: 1rem;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .event-card-row {
+      flex-wrap: wrap;
+    }
+
+    .event-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
   }
 `;
 
@@ -695,6 +815,12 @@ function AdminContent() {
   const [selectedEventId, setSelectedEventId] = React.useState<number | null>(null);
   const [copyDone, setCopyDone] = React.useState(false);
   const [eventFormModal, setEventFormModal] = React.useState<null | "create" | "edit">(null);
+  const [isLiveSaving, setIsLiveSaving] = React.useState(false);
+  const [declareResultSaving, setDeclareResultSaving] = React.useState(false);
+
+  const patchEvent = React.useCallback((eventId: number, patch: Partial<ApiEvent>) => {
+    setEvents((prev) => prev.map((e) => (e.event_id === eventId ? { ...e, ...patch } : e)));
+  }, []);
 
   const loadEvents = React.useCallback(async () => {
     const token = readAdminToken();
@@ -768,7 +894,7 @@ function AdminContent() {
         params.set("eventId", String(eventId));
       }
       const q = params.toString();
-      router.replace(withBasePath(`/admin${q ? `?${q}` : ""}`), { scroll: false });
+      router.replace(`/admin${q ? `?${q}` : ""}`, { scroll: false });
     },
     [router],
   );
@@ -815,8 +941,8 @@ function AdminContent() {
   }, []);
 
   function redirectAfterLogin() {
-    if (nextAfterLogin === "/actions" && presetEventId) { router.push(withBasePath(`/actions?eventId=${encodeURIComponent(presetEventId)}`)); return; }
-    if (nextAfterLogin.startsWith("/")) router.push(withBasePath(nextAfterLogin));
+    if (nextAfterLogin === "/actions" && presetEventId) { router.push(`/actions?eventId=${encodeURIComponent(presetEventId)}`); return; }
+    if (nextAfterLogin.startsWith("/")) router.push(nextAfterLogin);
   }
 
   function validateEmail(value: string): string | null {
@@ -1153,8 +1279,7 @@ function AdminContent() {
   function logout() { clearAdminSession(); setView("auth"); setEvents([]); }
 
   function fullRegisterUrl(eventId: number) {
-    if (typeof window === "undefined") return "";
-    return `${window.location.origin}${withBasePath(`/register?eventId=${eventId}`)}`;
+    return fullAppUrl(`/register?eventId=${eventId}`);
   }
 
   function IconTrash(props: React.SVGProps<SVGSVGElement>) {
@@ -1191,6 +1316,48 @@ function AdminContent() {
       setError(err instanceof Error ? err.message : "DELETE_EVENT_FAILED");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function toggleEventIsLive(ev: ApiEvent, next: boolean) {
+    const token = readAdminToken();
+    if (!token) return;
+    setIsLiveSaving(true);
+    setError(null);
+    try {
+      const r = await fetch(`${apiBase}/admin/events/${ev.event_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
+        body: JSON.stringify({ is_live: next ? 1 : 0 }),
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(data?.error || "UPDATE_EVENT_FAILED");
+      patchEvent(ev.event_id, { is_live: next ? 1 : 0 });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "UPDATE_EVENT_FAILED");
+    } finally {
+      setIsLiveSaving(false);
+    }
+  }
+
+  async function toggleEventDeclareResult(ev: ApiEvent, next: boolean) {
+    const token = readAdminToken();
+    if (!token) return;
+    setDeclareResultSaving(true);
+    setError(null);
+    try {
+      const r = await fetch(`${apiBase}/admin/events/${ev.event_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
+        body: JSON.stringify({ declare_result: next ? 1 : 0 }),
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(data?.error || "UPDATE_EVENT_FAILED");
+      patchEvent(ev.event_id, { declare_result: next ? 1 : 0 });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "UPDATE_EVENT_FAILED");
+    } finally {
+      setDeclareResultSaving(false);
     }
   }
 
@@ -1331,6 +1498,8 @@ function AdminContent() {
       const desc = (ev.description || "").trim();
       const imgSrc = resolveEventBannerUrl(apiOrigin, ev.image);
       const isPrivate = ev.is_private === true || ev.is_private === 1;
+      const isLive = ev.is_live === true || ev.is_live === 1;
+      const eventDeclaresAll = ev.declare_result === true || ev.declare_result === 1;
       const status = votingStatus(ev);
       const startLabel = formatWhen(ev.start_time);
       const endLabel = formatWhen(ev.end_time);
@@ -1359,6 +1528,9 @@ function AdminContent() {
               <span className={`event-badge ${isPrivate ? "badge-private" : "badge-public"}`}>
                 {isPrivate ? "Private" : "Public"}
               </span>
+              <span className={`event-badge ${isLive ? "badge-public" : "badge-vote-ended"}`}>
+                {isLive ? "Live" : "Not live"}
+              </span>
               <span className={`event-badge ${voteBadgeClass}`}>{voteLabel}</span>
             </div>
             <h1 className="event-detail-title">{title}</h1>
@@ -1380,6 +1552,44 @@ function AdminContent() {
             {isPrivate ? (
               <p className="event-detail-note">Invite-only event. Share the register link below with attendees.</p>
             ) : null}
+            <div className="event-detail-controls">
+              <div className="event-detail-controls-title">Event controls</div>
+              <div className="event-detail-controls-row">
+                <label
+                  className={switchStyles.adminApproveSwitch}
+                  title={isLive ? "Event is live" : "Make event live"}
+                >
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    checked={isLive}
+                    disabled={isLiveSaving || loading}
+                    onChange={(e) => void toggleEventIsLive(ev, e.target.checked)}
+                    aria-label={isLive ? "Take event offline" : "Go live"}
+                  />
+                  <span className={switchStyles.adminApproveTrack} aria-hidden />
+                  <span>Go live</span>
+                </label>
+                <label
+                  className={switchStyles.adminApproveSwitch}
+                  title={eventDeclaresAll ? "All category results declared" : "Declare all category results"}
+                >
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    checked={eventDeclaresAll}
+                    disabled={declareResultSaving || loading}
+                    onChange={(e) => void toggleEventDeclareResult(ev, e.target.checked)}
+                    aria-label={eventDeclaresAll ? "Undeclare all results" : "Declare all results"}
+                  />
+                  <span className={switchStyles.adminApproveTrack} aria-hidden />
+                  <span>Declare all results</span>
+                </label>
+              </div>
+              <p className="event-detail-note" style={{ marginBottom: 0 }}>
+                Go live opens voting on the public event page. Per-category Show nominee and Declare result are in Categories.
+              </p>
+            </div>
             <div className="event-detail-actions">
               <button
                 type="button"
@@ -1445,6 +1655,7 @@ function AdminContent() {
           mode={dashboardScreen}
           eventId={selectedEventId}
           eventTitle={(manageEvent.title || "").trim() || "Untitled"}
+          eventDeclareResult={manageEvent.declare_result === true || manageEvent.declare_result === 1}
           apiBase={apiBase}
           apiOrigin={apiOrigin}
           token={manageToken}
@@ -1783,7 +1994,7 @@ function AdminContent() {
     return (
       <div className="page">
         <style>{css}</style>
-        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontFamily: "var(--font)", fontSize: 14 }}>
+        <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 14 }}>
           Checking session…
         </div>
       </div>

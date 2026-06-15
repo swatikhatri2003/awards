@@ -2,7 +2,6 @@
 
 import React from "react";
 import Link from "next/link";
-import { withBasePath } from "../_lib/basePath";
 import { SiteNav } from "./SiteNav";
 import { PublicEventsList } from "./PublicEventsList";
 import { HOME_EVENTS_PREVIEW_LIMIT, Reveal, type HomePublicEvent } from "./landingUtils";
@@ -47,10 +46,10 @@ export function HomeExperience(props: {
               invite-only voting when you need control.
             </p>
             <div className="hxHeroActions hxHeroIn hxHeroIn--4">
-              <Link className="hxPillBtn hxPillBtn--lg" href={withBasePath("/admin")}>
+              <Link className="hxPillBtn hxPillBtn--lg" href="/admin">
                 Create an event
               </Link>
-              <Link className="hxPillBtn hxPillBtn--lg hxPillBtn--soft" href={withBasePath("/events")}>
+              <Link className="hxPillBtn hxPillBtn--lg hxPillBtn--soft" href="/events">
                 Browse public events
               </Link>
             </div>
@@ -130,7 +129,7 @@ export function HomeExperience(props: {
           ) : events.length === 0 ? (
             <p className="hxMuted">
               No public events right now. Organisers can{" "}
-              <Link href={withBasePath("/admin")}>open the dashboard</Link> to publish one. Private events never appear
+              <Link href="/admin">open the dashboard</Link> to publish one. Private events never appear
               here.
             </p>
           ) : (
@@ -138,7 +137,7 @@ export function HomeExperience(props: {
               <PublicEventsList events={previewEvents} apiOrigin={apiOrigin} />
               {hasMoreEvents ? (
                 <div className="hxViewAllWrap">
-                  <Link href={withBasePath("/events")} className="hxViewAllBtn">
+                  <Link href="/events" className="hxViewAllBtn">
                     View all events
                   </Link>
                 </div>
@@ -151,7 +150,7 @@ export function HomeExperience(props: {
       <footer className="hxFooter">
         <div className="hxFooterInner">
           <p className="hxFooterLead">
-            Running a programme? <Link href={withBasePath("/admin")}>Admin dashboard</Link>
+            Running a programme? <Link href="/admin">Admin dashboard</Link>
           </p>
           <p className="hxFooterNote">
             Private ballots use the link your organiser sends—they are not listed on this page.

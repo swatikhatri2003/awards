@@ -2,7 +2,6 @@
 
 import React from "react";
 import Link from "next/link";
-import { withBasePath } from "../_lib/basePath";
 import { resolveEventBannerUrl } from "../_lib/resolveImageUrl";
 import type { HomePublicEvent } from "./landingUtils";
 import { Reveal } from "./landingUtils";
@@ -16,7 +15,7 @@ export function PublicEventsList(props: { events: HomePublicEvent[]; apiOrigin: 
         const title = (ev.title || "").trim() || "Untitled event";
         const desc = (ev.description || "").trim();
         const imgSrc = resolveEventBannerUrl(apiOrigin, ev.image);
-        const detailHref = withBasePath(`/events/${ev.event_id}`);
+        const detailHref = `/events/${ev.event_id}`;
         const live = ev.is_live === true || ev.is_live === 1;
         return (
           <li key={ev.event_id} className="hxEventRiverItem">

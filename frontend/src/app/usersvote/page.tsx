@@ -5,7 +5,6 @@ import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Shell } from "../_components/Shell";
-import { withBasePath } from "../_lib/basePath";
 import {
   clearCurrentUser,
   pushUserVote,
@@ -17,9 +16,9 @@ import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 import { resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
 
 const FALLBACK_PHOTO =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23111424'/%3E%3Ctext x='50%25' y='50%25' fill='%23aab3c5' font-size='14' text-anchor='middle' dominant-baseline='middle'%3ENo Photo%3C/text%3E%3C/svg%3E";
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23f1f5f9'/%3E%3Ctext x='50%25' y='50%25' fill='%2364748b' font-size='14' text-anchor='middle' dominant-baseline='middle'%3ENo Photo%3C/text%3E%3C/svg%3E";
 const ERROR_PHOTO =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23111424'/%3E%3Ctext x='50%25' y='50%25' fill='%23aab3c5' font-size='14' text-anchor='middle' dominant-baseline='middle'%3EImage error%3C/text%3E%3C/svg%3E";
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23f1f5f9'/%3E%3Ctext x='50%25' y='50%25' fill='%2364748b' font-size='14' text-anchor='middle' dominant-baseline='middle'%3EImage error%3C/text%3E%3C/svg%3E";
 
 type Category = {
   category_id: number;
@@ -342,75 +341,23 @@ export default function UsersVotePage() {
     nominees.length === 0 ||
     !votingWindowOpen;
 
-  const bottomBarStyle: React.CSSProperties = {
-    position: "fixed",
-    left: "calc(12px + env(safe-area-inset-left, 0px))",
-    right: "calc(12px + env(safe-area-inset-right, 0px))",
-    bottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "stretch",
-    gap: 8,
-    zIndex: 1000,
-    pointerEvents: "none",
-  };
-  const sharedBtnStyle: React.CSSProperties = {
-    minWidth: 0,
-    minHeight: 48,
-    height: "auto",
-    padding: "10px 8px",
-    fontSize: 14,
-    fontWeight: 700,
-    borderRadius: 12,
-    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-    pointerEvents: "auto",
-    whiteSpace: "nowrap",
-  };
-  const sideBtnStyle: React.CSSProperties = {
-    ...sharedBtnStyle,
-    flex: "0 1 26%",
-    maxWidth: "120px",
-    fontSize: 13,
-    padding: "10px 6px",
-    backgroundColor: "#1f2a44",
-    backgroundImage: "none",
-    color: "#fff",
-    border: "1px solid rgba(255,255,255,0.22)",
-  };
-  const sideBtnDisabledStyle: React.CSSProperties = {
-    backgroundColor: "#0f1626",
-    backgroundImage: "none",
-    color: "rgba(255,255,255,0.45)",
-    border: "1px solid rgba(255,255,255,0.10)",
-  };
-  const voteBtnStyle: React.CSSProperties = {
-    ...sharedBtnStyle,
-    flex: 1,
-  };
-
   const bottomBar = (
-    <div style={bottomBarStyle}>
+    <div className="voteBottomBar">
       <button
         type="button"
+        className="voteBottomBtn voteBottomBtnSide"
         disabled={backDisabled}
         onClick={prevCategory}
-        style={{
-          ...sideBtnStyle,
-          ...(backDisabled ? sideBtnDisabledStyle : null),
-          opacity: 1,
-          cursor: backDisabled ? "not-allowed" : "pointer",
-        }}
       >
         ‹ Back
       </button>
 
       <button
-        className="btn"
+        className="btn voteBottomBtn voteBottomBtnVote"
         type="button"
         disabled={voteDisabled}
         onClick={submitVote}
         style={{
-          ...voteBtnStyle,
           opacity: voteDisabled ? 0.85 : 1,
           cursor: voteDisabled ? "not-allowed" : "pointer",
         }}
@@ -420,14 +367,9 @@ export default function UsersVotePage() {
 
       <button
         type="button"
+        className="voteBottomBtn voteBottomBtnSide"
         disabled={nextDisabled}
         onClick={nextCategory}
-        style={{
-          ...sideBtnStyle,
-          ...(nextDisabled ? sideBtnDisabledStyle : null),
-          opacity: 1,
-          cursor: nextDisabled ? "not-allowed" : "pointer",
-        }}
       >
         {isLast ? "Finish ›" : "Next ›"}
       </button>
@@ -443,7 +385,7 @@ export default function UsersVotePage() {
         user ? (
           <div className="shellHeaderActionGroup">
             {eventId ? (
-              <Link href={withBasePath(`/events/${eventId}`)} className="linkBtn">
+              <Link href={`/events/${eventId}`} className="linkBtn">
                 Event details
               </Link>
             ) : null}
@@ -454,23 +396,12 @@ export default function UsersVotePage() {
         ) : null
       }
     >
-      <h1
-        style={{
-          textAlign: "center",
-          fontSize: "clamp(28px, 4vw, 44px)",
-          fontWeight: 800,
-          lineHeight: 1.15,
-          letterSpacing: "-0.01em",
-          margin: "0 0 12px",
-        }}
-      >
-        {headerTitle}
-      </h1>
+      <h1 className="usersVoteTitle">{headerTitle}</h1>
 
       {eventId ? (
         <div style={{ textAlign: "center", marginBottom: 18 }}>
           <Link
-            href={withBasePath(`/events/${eventId}`)}
+            href={`/events/${eventId}`}
             className="btn btnSecondary"
             style={{ textDecoration: "none" }}
           >
@@ -482,26 +413,15 @@ export default function UsersVotePage() {
       {error ? <div className="error">Error: {error}</div> : null}
 
       {!loadingInit && !votingWindowOpen && eventMeta?.start_time && eventMeta?.end_time ? (
-        <div
-          className="hint"
-          style={{
-            background: "rgba(220, 38, 38, 0.1)",
-            border: "1px solid rgba(220, 38, 38, 0.35)",
-            borderRadius: 12,
-            padding: "12px 14px",
-            marginBottom: 14,
-            color: "var(--text)",
-          }}
-        >
+        <div className="voteClosedHint">
           Voting is closed right now. It opens only between the scheduled start and end times for this event.
         </div>
       ) : null}
 
       {done ? (
         <section
-          className="panel"
+          className="panel usersVoteSectionPad"
           aria-label="Voting complete"
-          style={{ marginBottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}
         >
           <div className="panelHeader">
             <div className="panelTitle">All Done</div>
@@ -514,19 +434,13 @@ export default function UsersVotePage() {
         <div className="hint">{loadingInit ? "Please wait..." : "No categories yet."}</div>
       ) : (
         <section
+          className="usersVoteSectionPad"
           aria-label="Category voting"
-          style={{ paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}
         >
           {nominees.length === 0 ? (
             <div className="hint">No nominees in this category yet.</div>
           ) : (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-              }}
-            >
+            <div className="usersVoteNomineeList">
               {nominees.map((n) => {
                 const src = resolveNomineePhotoUrl(apiOrigin, n.photo) || FALLBACK_PHOTO;
                 const isSelected = selectedNomineeId === Number(n.nominee_id);
@@ -557,28 +471,11 @@ export default function UsersVotePage() {
                       checked={isSelected}
                       disabled={voting || voted}
                       onChange={() => setSelectedNomineeId(Number(n.nominee_id))}
-                      style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
+                      className="visuallyHidden"
                     />
 
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 12,
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 56,
-                          height: 56,
-                          flex: "0 0 auto",
-                          borderRadius: "50%",
-                          overflow: "hidden",
-                          background: "#111424",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                        }}
-                      >
+                    <div className="usersVoteNomineeRow">
+                      <div className="usersVoteNomineePhoto">
                         <img
                           src={src}
                           alt={n.name}
@@ -586,42 +483,13 @@ export default function UsersVotePage() {
                           onError={(e) => {
                             e.currentTarget.src = ERROR_PHOTO;
                           }}
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                            display: "block",
-                          }}
                         />
                       </div>
 
-                      <div
-                        style={{
-                          fontWeight: 800,
-                          fontSize: 18,
-                          lineHeight: 1.2,
-                          flex: 1,
-                          minWidth: 0,
-                          wordBreak: "break-word",
-                        }}
-                      >
-                        {n.name}
-                      </div>
+                      <div className="usersVoteNomineeName">{n.name}</div>
 
                       {isVotedFor ? (
-                        <span
-                          aria-hidden="true"
-                          style={{
-                            flex: "0 0 auto",
-                            fontSize: 12,
-                            fontWeight: 700,
-                            color: "#0b1020",
-                            background: "linear-gradient(135deg, #fcd34d, #f59e0b)",
-                            padding: "4px 10px",
-                            borderRadius: 999,
-                            letterSpacing: "0.02em",
-                          }}
-                        >
+                        <span aria-hidden="true" className="usersVoteVotedBadge">
                           ✓
                         </span>
                       ) : null}
@@ -634,29 +502,14 @@ export default function UsersVotePage() {
                         <div style={{ width: "100%" }}>
                           {desc.tagline ? (
                             <div
-                              style={{
-                                fontSize: 11,
-                                lineHeight: 1.3,
-                                fontStyle: "italic",
-                                color: "rgba(255,255,255,0.78)",
-                                wordBreak: "break-word",
-                                marginBottom: desc.bullets.length > 0 ? 4 : 0,
-                              }}
+                              className="usersVoteNomineeDescTag"
+                              style={{ marginBottom: desc.bullets.length > 0 ? 4 : 0 }}
                             >
                               {desc.tagline}
                             </div>
                           ) : null}
                           {desc.bullets.length > 0 ? (
-                            <ul
-                              style={{
-                                listStyle: "disc",
-                                paddingLeft: 16,
-                                margin: 0,
-                                fontSize: 11,
-                                lineHeight: 1.3,
-                                color: "rgba(255,255,255,0.85)",
-                              }}
-                            >
+                            <ul className="usersVoteNomineeDescList">
                               {desc.bullets.map((b, i) => (
                                 <li key={i} style={{ marginBottom: 1 }}>
                                   {b}

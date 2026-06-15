@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Field, Shell } from "../_components/Shell";
 import { writePendingRegistration } from "../_lib/authSession";
-import { withBasePath } from "../_lib/basePath";
 import { getPublicApiBase } from "../_lib/publicApiBase";
 
 function normalizeMobile(v: string) {
@@ -135,7 +134,7 @@ function RegisterContent() {
 
       <div className="formActionsRow" style={{ marginBottom: 16 }}>
         <Link
-          href={withBasePath(`/events/${eventId}`)}
+          href={`/events/${eventId}`}
           className="btn btnSecondary"
           style={{ flex: 1, textAlign: "center", textDecoration: "none" }}
         >

@@ -11,7 +11,18 @@ type Category = {
   name: string;
   winner_nominee_id: number | null;
   event_id?: number | null;
+  show_nominee?: number | boolean | null;
+  declare_result?: number | boolean | null;
 };
+
+function categoryShowsNominees(c: Category): boolean {
+  return c.show_nominee === true || c.show_nominee === 1;
+}
+
+function categoryDeclaresResult(c: Category, eventDeclaresAll: boolean): boolean {
+  if (eventDeclaresAll) return true;
+  return c.declare_result === true || c.declare_result === 1;
+}
 
 type Nominee = {
   nominee_id: number;
@@ -58,13 +69,14 @@ export function EventCategoriesNomineesPanel(props: {
   mode: "categories" | "nominees";
   eventId: number;
   eventTitle: string;
+  eventDeclareResult?: boolean;
   apiBase: string;
   apiOrigin: string;
   token: string;
   onBack: () => void;
   onGoCategories?: () => void;
 }) {
-  const { mode, eventId, eventTitle, apiBase, apiOrigin, token, onBack, onGoCategories } = props;
+  const { mode, eventId, eventTitle, eventDeclareResult = false, apiBase, apiOrigin, token, onBack, onGoCategories } = props;
 
   const [adminCategories, setAdminCategories] = React.useState<Category[]>([]);
   const [adminNominees, setAdminNominees] = React.useState<Nominee[]>([]);
@@ -82,6 +94,8 @@ export function EventCategoriesNomineesPanel(props: {
 
   const [nomineePhotoBlobUrl, setNomineePhotoBlobUrl] = React.useState<string | null>(null);
   const [adminPhotoUploading, setAdminPhotoUploading] = React.useState(false);
+  const [showNomineeSavingId, setShowNomineeSavingId] = React.useState<number | null>(null);
+  const [declareResultSavingId, setDeclareResultSavingId] = React.useState<number | null>(null);
 
   const categoryById = React.useMemo(() => {
     const m = new Map<number, Category>();
@@ -298,6 +312,52 @@ export function EventCategoriesNomineesPanel(props: {
     }
   }
 
+  async function toggleCategoryShowNominee(c: Category, next: boolean) {
+    setShowNomineeSavingId(c.category_id);
+    setAdminError(null);
+    try {
+      const res = await fetch(`${apiBase}/admin/categories/${c.category_id}?eventId=${eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
+        body: JSON.stringify({ show_nominee: next ? 1 : 0 }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "UPDATE_CATEGORY_FAILED");
+      setAdminCategories((prev) =>
+        prev.map((cat) =>
+          cat.category_id === c.category_id ? { ...cat, show_nominee: next ? 1 : 0 } : cat,
+        ),
+      );
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
+    } finally {
+      setShowNomineeSavingId(null);
+    }
+  }
+
+  async function toggleCategoryDeclareResult(c: Category, next: boolean) {
+    setDeclareResultSavingId(c.category_id);
+    setAdminError(null);
+    try {
+      const res = await fetch(`${apiBase}/admin/categories/${c.category_id}?eventId=${eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
+        body: JSON.stringify({ declare_result: next ? 1 : 0 }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "UPDATE_CATEGORY_FAILED");
+      setAdminCategories((prev) =>
+        prev.map((cat) =>
+          cat.category_id === c.category_id ? { ...cat, declare_result: next ? 1 : 0 } : cat,
+        ),
+      );
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
+    } finally {
+      setDeclareResultSavingId(null);
+    }
+  }
+
   async function toggleNomineeApproved(n: Nominee, nextApproved: boolean) {
     setAdminLoading(true);
     setAdminError(null);
@@ -486,6 +546,48 @@ export function EventCategoriesNomineesPanel(props: {
                       <span className="event-badge badge-public" style={{ marginLeft: 8 }}>Winner set</span>
                     ) : null}
                   </div>
+                </div>
+                <div className={styles.adminCategoryRowSwitches}>
+                  <label
+                    className={styles.adminApproveSwitch}
+                    title={categoryShowsNominees(c) ? "Nominees visible on screen" : "Nominees hidden on screen"}
+                  >
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={categoryShowsNominees(c)}
+                      disabled={showNomineeSavingId === c.category_id || adminLoading}
+                      onChange={(e) => void toggleCategoryShowNominee(c, e.target.checked)}
+                      aria-label={categoryShowsNominees(c) ? "Hide nominees on screen" : "Show nominees on screen"}
+                    />
+                    <span className={styles.adminApproveTrack} aria-hidden />
+                    <span>Show nominee</span>
+                  </label>
+                  <label
+                    className={styles.adminApproveSwitch}
+                    title={
+                      categoryDeclaresResult(c, eventDeclareResult)
+                        ? "Result declared"
+                        : "Result not declared"
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={c.declare_result === true || c.declare_result === 1}
+                      disabled={
+                        declareResultSavingId === c.category_id || adminLoading || eventDeclareResult
+                      }
+                      onChange={(e) => void toggleCategoryDeclareResult(c, e.target.checked)}
+                      aria-label={
+                        c.declare_result === true || c.declare_result === 1
+                          ? "Undeclare category result"
+                          : "Declare category result"
+                      }
+                    />
+                    <span className={styles.adminApproveTrack} aria-hidden />
+                    <span>Declare result</span>
+                  </label>
                 </div>
               </div>
             ))}

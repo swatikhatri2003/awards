@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import styles from "./screen.module.css";
 import { subscribeYlf, type YlfNominee, type YlfState, type YlfWinnerEntry } from "@/lib/firebase";
 import QRCode from "qrcode";
-import { withBasePath } from "../_lib/basePath";
+import { fullAppUrl } from "../_lib/basePath";
 import { getPublicApiBase } from "../_lib/publicApiBase";
 import { resolveEventBannerUrl, resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
 
@@ -56,7 +56,7 @@ function QrStage({ eventId }: { eventId: number }) {
     const url =
       process.env.NEXT_PUBLIC_VOTE_URL ||
       (typeof window !== "undefined"
-        ? `${window.location.origin}${withBasePath(`/register?eventId=${eventId}`)}`
+        ? fullAppUrl(`/register?eventId=${eventId}`)
         : "");
     if (!url) return;
 
