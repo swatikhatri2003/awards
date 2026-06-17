@@ -5,6 +5,7 @@ import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import * as XLSX from "xlsx";
 import type { RowDataPacket } from "mysql2/promise";
 import { z } from "zod";
 import { getDb } from "./db";
@@ -122,6 +123,65 @@ const adminLogoUpload = multer({
   },
 });
 
+const allowedMobilesUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb: multer.FileFilterCallback) => {
+    const name = (file.originalname || "").toLowerCase();
+    const ok =
+      name.endsWith(".xlsx") ||
+      name.endsWith(".xls") ||
+      name.endsWith(".csv") ||
+      /spreadsheet|excel|csv/i.test(file.mimetype || "");
+    if (!ok) return cb(new Error("ONLY_SPREADSHEET_ALLOWED"));
+    return cb(null, true);
+  },
+});
+
+function normalizeMobileDigits(raw: string): string | null {
+  const digits = String(raw).replace(/\D/g, "");
+  if (!digits) return null;
+  const mobile = digits.length > 10 ? digits.slice(-10) : digits;
+  if (mobile.length < 10) return null;
+  return mobile;
+}
+
+function extractMobilesFromRows(
+  rows: (string | number | null | undefined)[][],
+): { mobile: string; note?: string }[] {
+  const out: { mobile: string; note?: string }[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row?.length) continue;
+    const firstStr = String(row[0] ?? "").trim().toLowerCase();
+    if (i === 0 && (firstStr === "mobile" || firstStr === "phone" || firstStr === "number")) continue;
+    const mobile = normalizeMobileDigits(String(row[0] ?? ""));
+    if (!mobile || seen.has(mobile)) continue;
+    seen.add(mobile);
+    const noteRaw = row[1];
+    const note =
+      noteRaw != null && String(noteRaw).trim() ? String(noteRaw).trim().slice(0, 255) : undefined;
+    out.push(note ? { mobile, note } : { mobile });
+  }
+  return out;
+}
+
+function parseSpreadsheetMobiles(buffer: Buffer, originalName: string): { mobile: string; note?: string }[] {
+  const lower = (originalName || "").toLowerCase();
+  if (lower.endsWith(".csv")) {
+    const text = buffer.toString("utf8");
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    const rows = lines.map((line) => line.split(/[,;\t]/).map((c) => c.trim()));
+    return extractMobilesFromRows(rows);
+  }
+  const wb = XLSX.read(buffer, { type: "buffer" });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) return [];
+  const rows = XLSX.utils.sheet_to_json<(string | number | null | undefined)[]>(sheet, { header: 1 });
+  return extractMobilesFromRows(rows);
+}
+
 app.post("/api/uploads/admin-logo", adminLogoUpload.single("photo"), (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ ok: false, error: "NO_FILE" });
@@ -196,6 +256,64 @@ async function deleteVotesForCategoryIds(categoryIds: number[]) {
     params[`c${i}`] = id;
   });
   await db.execute(`DELETE FROM votes WHERE category_id IN (${placeholders})`, params as any);
+  await db.execute(
+    `DELETE uv FROM user_votes uv
+     INNER JOIN nominee n ON n.nominee_id = uv.nominee_id
+     WHERE n.category_id IN (${placeholders})`,
+    params as any,
+  );
+}
+
+/** Records user → nominee vote in user_votes (idempotent). */
+async function recordUserVote(userId: number, nomineeId: number): Promise<void> {
+  await db.execute(
+    `INSERT IGNORE INTO user_votes (user_id, nominee_id) VALUES (:user_id, :nominee_id)`,
+    { user_id: userId, nominee_id: nomineeId },
+  );
+}
+
+/** Picks the nominee with the most votes in a category (ties → lowest nominee_id). */
+async function pickTopVotedNomineeId(categoryId: number): Promise<number | null> {
+  const [rows] = await db.execute<RowDataPacket[]>(
+    `SELECT nominee_id
+     FROM nominee
+     WHERE category_id = :category_id
+     ORDER BY COALESCE(votes, 0) DESC, nominee_id ASC
+     LIMIT 1`,
+    { category_id: categoryId },
+  );
+  const id = rows[0] ? Number(rows[0].nominee_id) : NaN;
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+/** Sets category.winner_nominee_id from current vote counts. */
+async function applyCategoryWinnerFromVotes(categoryId: number): Promise<number | null> {
+  const winnerId = await pickTopVotedNomineeId(categoryId);
+  await db.execute(
+    `UPDATE category SET winner_nominee_id = :winner_nominee_id WHERE category_id = :category_id`,
+    { category_id: categoryId, winner_nominee_id: winnerId },
+  );
+  return winnerId;
+}
+
+/** Applies or clears winners for every category in an event after bulk declare/undeclare. */
+async function syncEventCategoryWinners(eventId: number, declareResult: boolean): Promise<void> {
+  const [catRows] = await db.execute<RowDataPacket[]>(
+    `SELECT category_id FROM category WHERE event_id = :event_id`,
+    { event_id: eventId },
+  );
+  for (const row of catRows) {
+    const categoryId = Number(row.category_id);
+    if (!Number.isFinite(categoryId) || categoryId <= 0) continue;
+    if (declareResult) {
+      await applyCategoryWinnerFromVotes(categoryId);
+    } else {
+      await db.execute(
+        `UPDATE category SET winner_nominee_id = NULL WHERE category_id = :category_id`,
+        { category_id: categoryId },
+      );
+    }
+  }
 }
 
 async function cleanupEventRelatedData(eventId: number) {
@@ -815,6 +933,13 @@ app.patch("/api/admin/events/:eventId", async (req, res) => {
     }
 
     await db.execute(`UPDATE events SET ${updates.join(", ")} WHERE event_id = :event_id`, params as any);
+    if (d.declare_result !== undefined) {
+      await db.execute(
+        `UPDATE category SET declare_result = :declare_result WHERE event_id = :event_id`,
+        { declare_result: d.declare_result ? 1 : 0, event_id: eventId },
+      );
+      await syncEventCategoryWinners(eventId, Boolean(d.declare_result));
+    }
     const [rows] = await db.execute<RowDataPacket[]>(
       `SELECT event_id, title, description, image, admin_id, is_private, start_time, end_time,
               COALESCE(declare_result, 0) AS declare_result,
@@ -848,6 +973,319 @@ app.delete("/api/admin/events/:eventId", async (req, res) => {
     return res.json({ ok: true, deleted: true, event_id: eventId });
   } catch (e) {
     console.error("admin delete event error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+const adminAllowedMobileSchema = z.object({
+  mobile: z.string().trim().min(1).max(20),
+  note: z.string().trim().max(255).optional().nullable(),
+});
+
+const adminUpdateAllowedMobileSchema = z.object({
+  mobile: z.string().trim().min(1).max(20).optional(),
+  note: z.string().trim().max(255).optional().nullable(),
+});
+
+const adminBulkAllowedMobilesSchema = z.object({
+  entries: z
+    .array(
+      z.object({
+        mobile: z.string().trim().min(1).max(20),
+        note: z.string().trim().max(255).optional().nullable(),
+      }),
+    )
+    .min(1)
+    .max(5000),
+});
+
+async function ensureAllowedMobileInEvent(
+  allowedId: number,
+  eventId: number,
+): Promise<RowDataPacket | null> {
+  const [rows] = await db.execute<RowDataPacket[]>(
+    `SELECT id, mobile, note, created_at, event_id
+     FROM allowed_mobiles
+     WHERE id = :id AND event_id = :event_id
+     LIMIT 1`,
+    { id: allowedId, event_id: eventId },
+  );
+  return rows[0] ?? null;
+}
+
+async function insertAllowedMobilesForEvent(
+  eventId: number,
+  entries: { mobile: string; note?: string | null }[],
+): Promise<{ inserted: number; skipped: number; invalid: number }> {
+  let inserted = 0;
+  let skipped = 0;
+  let invalid = 0;
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const mobile = normalizeMobileDigits(entry.mobile);
+    if (!mobile) {
+      invalid += 1;
+      continue;
+    }
+    if (seen.has(mobile)) {
+      skipped += 1;
+      continue;
+    }
+    seen.add(mobile);
+    const note =
+      entry.note == null || !String(entry.note).trim()
+        ? null
+        : String(entry.note).trim().slice(0, 255);
+    try {
+      const [result] = await db.execute(
+        `INSERT INTO allowed_mobiles (mobile, note, event_id) VALUES (:mobile, :note, :event_id)`,
+        { mobile, note, event_id: eventId },
+      );
+      // @ts-expect-error mysql2
+      const id = Number(result?.insertId ?? 0);
+      if (id > 0) inserted += 1;
+      else skipped += 1;
+    } catch (e: unknown) {
+      const code = (e as { code?: string } | null)?.code;
+      if (code === "ER_DUP_ENTRY") skipped += 1;
+      else throw e;
+    }
+  }
+  return { inserted, skipped, invalid };
+}
+
+app.get("/api/admin/events/:eventId/allowed-mobiles", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId) || eventId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_EVENT_ID" });
+  }
+  try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT id, mobile, note, created_at, event_id
+       FROM allowed_mobiles
+       WHERE event_id = :event_id
+       ORDER BY id DESC`,
+      { event_id: eventId },
+    );
+    return res.json({ ok: true, allowed_mobiles: rows });
+  } catch (e) {
+    console.error("admin list allowed mobiles error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.post("/api/admin/events/:eventId/allowed-mobiles", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId) || eventId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_EVENT_ID" });
+  }
+  const parsed = adminAllowedMobileSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT", message: "Valid mobile is required." });
+  }
+  const mobile = normalizeMobileDigits(parsed.data.mobile);
+  if (!mobile) {
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_MOBILE",
+      message: "Enter a valid 10-digit mobile number.",
+    });
+  }
+  try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
+    const note =
+      parsed.data.note == null || !String(parsed.data.note).trim()
+        ? null
+        : String(parsed.data.note).trim().slice(0, 255);
+    const [result] = await db.execute(
+      `INSERT INTO allowed_mobiles (mobile, note, event_id) VALUES (:mobile, :note, :event_id)`,
+      { mobile, note, event_id: eventId },
+    );
+    // @ts-expect-error mysql2
+    const id = Number(result?.insertId ?? 0);
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT id, mobile, note, created_at, event_id FROM allowed_mobiles WHERE id = :id LIMIT 1`,
+      { id },
+    );
+    return res.json({ ok: true, allowed_mobile: rows[0] ?? null });
+  } catch (e: unknown) {
+    const code = (e as { code?: string } | null)?.code;
+    if (code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        ok: false,
+        error: "MOBILE_ALREADY_ALLOWED",
+        message: "This mobile is already on the allowlist for this event.",
+      });
+    }
+    console.error("admin create allowed mobile error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.post("/api/admin/events/:eventId/allowed-mobiles/bulk", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId) || eventId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_EVENT_ID" });
+  }
+  const parsed = adminBulkAllowedMobilesSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      ok: false,
+      error: "INVALID_INPUT",
+      message: "Provide at least one mobile in entries.",
+    });
+  }
+  try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
+    const summary = await insertAllowedMobilesForEvent(eventId, parsed.data.entries);
+    return res.json({ ok: true, ...summary });
+  } catch (e) {
+    console.error("admin bulk allowed mobiles error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.post(
+  "/api/admin/events/:eventId/allowed-mobiles/upload",
+  allowedMobilesUpload.single("file"),
+  async (req, res) => {
+    const admin = await loadAdminFromRequest(req);
+    if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+    const eventId = Number(req.params.eventId);
+    if (!Number.isFinite(eventId) || eventId <= 0) {
+      return res.status(400).json({ ok: false, error: "INVALID_EVENT_ID" });
+    }
+    const file = req.file;
+    if (!file?.buffer?.length) {
+      return res.status(400).json({
+        ok: false,
+        error: "FILE_REQUIRED",
+        message: "Upload an Excel (.xlsx/.xls) or CSV file.",
+      });
+    }
+    try {
+      if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+        return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+      }
+      const entries = parseSpreadsheetMobiles(file.buffer, file.originalname || "");
+      if (!entries.length) {
+        return res.status(400).json({
+          ok: false,
+          error: "NO_VALID_MOBILES",
+          message: "No valid mobile numbers found. Put mobiles in the first column (optional note in second).",
+        });
+      }
+      const summary = await insertAllowedMobilesForEvent(eventId, entries);
+      return res.json({ ok: true, parsed: entries.length, ...summary });
+    } catch (e) {
+      console.error("admin upload allowed mobiles error", e);
+      return res.status(500).json({ ok: false, error: "DB_ERROR" });
+    }
+  },
+);
+
+app.patch("/api/admin/events/:eventId/allowed-mobiles/:allowedId", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+  const eventId = Number(req.params.eventId);
+  const allowedId = Number(req.params.allowedId);
+  if (!Number.isFinite(eventId) || eventId <= 0 || !Number.isFinite(allowedId) || allowedId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_ID" });
+  }
+  const parsed = adminUpdateAllowedMobileSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT" });
+  }
+  try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
+    const existing = await ensureAllowedMobileInEvent(allowedId, eventId);
+    if (!existing) {
+      return res.status(404).json({ ok: false, error: "ALLOWED_MOBILE_NOT_FOUND" });
+    }
+    const updates: string[] = [];
+    const params: Record<string, unknown> = { id: allowedId, event_id: eventId };
+    if (typeof parsed.data.mobile === "string") {
+      const mobile = normalizeMobileDigits(parsed.data.mobile);
+      if (!mobile) {
+        return res.status(400).json({
+          ok: false,
+          error: "INVALID_MOBILE",
+          message: "Enter a valid 10-digit mobile number.",
+        });
+      }
+      updates.push("mobile = :mobile");
+      params.mobile = mobile;
+    }
+    if (Object.prototype.hasOwnProperty.call(parsed.data, "note")) {
+      const note = parsed.data.note;
+      updates.push("note = :note");
+      params.note =
+        note == null || !String(note).trim() ? null : String(note).trim().slice(0, 255);
+    }
+    if (!updates.length) {
+      return res.status(400).json({ ok: false, error: "NO_CHANGES" });
+    }
+    await db.execute(
+      `UPDATE allowed_mobiles SET ${updates.join(", ")} WHERE id = :id AND event_id = :event_id`,
+      params as any,
+    );
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT id, mobile, note, created_at, event_id FROM allowed_mobiles WHERE id = :id LIMIT 1`,
+      { id: allowedId },
+    );
+    return res.json({ ok: true, allowed_mobile: rows[0] ?? null });
+  } catch (e: unknown) {
+    const code = (e as { code?: string } | null)?.code;
+    if (code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        ok: false,
+        error: "MOBILE_ALREADY_ALLOWED",
+        message: "This mobile is already on the allowlist for this event.",
+      });
+    }
+    console.error("admin update allowed mobile error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.delete("/api/admin/events/:eventId/allowed-mobiles/:allowedId", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+  const eventId = Number(req.params.eventId);
+  const allowedId = Number(req.params.allowedId);
+  if (!Number.isFinite(eventId) || eventId <= 0 || !Number.isFinite(allowedId) || allowedId <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_ID" });
+  }
+  try {
+    if (!(await assertAdminOwnsEvent(admin.adminId, eventId))) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN_EVENT", message: "You do not manage this event." });
+    }
+    const existing = await ensureAllowedMobileInEvent(allowedId, eventId);
+    if (!existing) {
+      return res.status(404).json({ ok: false, error: "ALLOWED_MOBILE_NOT_FOUND" });
+    }
+    await db.execute(`DELETE FROM allowed_mobiles WHERE id = :id AND event_id = :event_id`, {
+      id: allowedId,
+      event_id: eventId,
+    });
+    return res.json({ ok: true, deleted: true, id: allowedId });
+  } catch (e) {
+    console.error("admin delete allowed mobile error", e);
     return res.status(500).json({ ok: false, error: "DB_ERROR" });
   }
 });
@@ -1104,6 +1542,17 @@ app.patch("/api/admin/categories/:categoryId", async (req, res) => {
     }
 
     await db.execute(`UPDATE category SET ${updates.join(", ")} WHERE category_id = :category_id`, params as any);
+    if (parsed.data.declare_result !== undefined) {
+      if (parsed.data.declare_result) {
+        await applyCategoryWinnerFromVotes(categoryId);
+      } else {
+        await db.execute(
+          `UPDATE category SET winner_nominee_id = NULL WHERE category_id = :category_id`,
+          { category_id: categoryId },
+        );
+        await db.execute(`UPDATE events SET declare_result = 0 WHERE event_id = :event_id`, { event_id: eventId });
+      }
+    }
     const [rows] = await db.execute<RowDataPacket[]>(
       `SELECT category_id, name, winner_nominee_id,
               COALESCE(show_nominee, 0) AS show_nominee,
@@ -1325,6 +1774,7 @@ app.delete("/api/admin/nominees/:nomineeId", async (req, res) => {
       nominee_id: nomineeId,
     });
     await db.execute(`DELETE FROM votes WHERE nominee_id = :nominee_id`, { nominee_id: nomineeId });
+    await db.execute(`DELETE FROM user_votes WHERE nominee_id = :nominee_id`, { nominee_id: nomineeId });
     await db.execute(`DELETE FROM nominee WHERE nominee_id = :nominee_id`, { nominee_id: nomineeId });
     return res.json({ ok: true, deleted: true, nominee_id: nomineeId });
   } catch (e) {
@@ -1412,6 +1862,12 @@ app.post("/api/nominees/:nomineeId/vote", async (req, res) => {
        WHERE nominee_id = :nominee_id`,
       { nominee_id: nomineeId },
     );
+
+    const voterBody = req.body as { voter?: { userId?: number } } | null;
+    const voterUserId = Number(voterBody?.voter?.userId);
+    if (Number.isFinite(voterUserId) && voterUserId > 0) {
+      await recordUserVote(voterUserId, nomineeId);
+    }
 
     // @ts-expect-error mysql2 result shape varies by config
     const affected = Number(result?.affectedRows ?? 0);
@@ -1720,6 +2176,7 @@ app.post("/api/votes", async (req, res) => {
        VALUES (:uid, :catid, :nomid)`,
       { uid, catid, nomid },
     );
+    await recordUserVote(uid, nomid);
 
     const [updateResult] = await db.execute(
       `UPDATE nominee
@@ -1849,12 +2306,76 @@ async function ensureEventsVotingWindowColumns(): Promise<void> {
   }
 }
 
+/** Ensures allowed_mobiles table exists (private event invite list). */
+async function ensureAllowedMobilesTable(): Promise<void> {
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS allowed_mobiles (
+      id INT NOT NULL AUTO_INCREMENT,
+      mobile VARCHAR(15) NOT NULL,
+      note VARCHAR(255) DEFAULT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      event_id INT NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_allowed_mobiles_event_mobile (event_id, mobile),
+      KEY idx_allowed_mobiles_event_id (event_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+  `);
+  try {
+    await db.execute(`ALTER TABLE allowed_mobiles ADD COLUMN event_id INT NOT NULL DEFAULT 1`);
+  } catch (e: unknown) {
+    const err = e as { errno?: number; code?: string; message?: string };
+    if (err.errno === 1060 || err.code === "ER_DUP_FIELDNAME") {
+      /* already exists */
+    } else if (!/duplicate column name/i.test(String(err.message ?? ""))) {
+      throw e;
+    }
+  }
+  try {
+    await db.execute(`ALTER TABLE allowed_mobiles DROP INDEX uq_allowed_mobiles_mobile`);
+  } catch {
+    /* legacy index may be absent */
+  }
+  try {
+    await db.execute(
+      `ALTER TABLE allowed_mobiles ADD UNIQUE KEY uq_allowed_mobiles_event_mobile (event_id, mobile)`,
+    );
+  } catch (e: unknown) {
+    const err = e as { errno?: number; code?: string; message?: string };
+    if (err.errno === 1061 || err.code === "ER_DUP_KEYNAME") return;
+    if (/duplicate key name/i.test(String(err.message ?? ""))) return;
+    throw e;
+  }
+}
+
+/** Creates user_votes table when missing and backfills from votes. */
+async function ensureUserVotesTable(): Promise<void> {
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS user_votes (
+      vote_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id INT NOT NULL,
+      nominee_id INT NOT NULL,
+      PRIMARY KEY (vote_id),
+      UNIQUE KEY uniq_user_nominee (user_id, nominee_id),
+      KEY idx_user_votes_user_id (user_id),
+      KEY idx_user_votes_nominee_id (nominee_id),
+      CONSTRAINT fk_user_votes_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+      CONSTRAINT fk_user_votes_nominee FOREIGN KEY (nominee_id) REFERENCES nominee (nominee_id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+  `);
+  await db.execute(`
+    INSERT IGNORE INTO user_votes (user_id, nominee_id)
+    SELECT user_id, nominee_id FROM votes
+  `);
+}
+
 ensureEventsIsPrivateColumn()
   .then(() => ensureEventsVotingWindowColumns())
   .then(() => ensureNomineeIsApprovedColumn())
   .then(() => ensureCategoryShowNomineeColumn())
   .then(() => ensureDeclareResultColumns())
   .then(() => ensureEventIsLiveColumn())
+  .then(() => ensureAllowedMobilesTable())
+  .then(() => ensureUserVotesTable())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`API listening on http://localhost:${PORT}`);
