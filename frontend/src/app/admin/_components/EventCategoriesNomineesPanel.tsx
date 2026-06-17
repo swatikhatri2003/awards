@@ -4,7 +4,10 @@ import React from "react";
 import styles from "../../actions/led-kiosk.module.css";
 import { adminAuthHeader } from "../../_lib/adminAuthSession";
 import { resolveNomineePhotoUrl } from "../../_lib/resolveImageUrl";
+import { Breadcrumb } from "../../_components/Breadcrumb";
 import { AdminModal } from "./AdminModal";
+import { AdminNomineeCard } from "./AdminNomineeCard";
+import Box from "@mui/material/Box";
 
 type Category = {
   category_id: number;
@@ -19,8 +22,7 @@ function categoryShowsNominees(c: Category): boolean {
   return c.show_nominee === true || c.show_nominee === 1;
 }
 
-function categoryDeclaresResult(c: Category, eventDeclaresAll: boolean): boolean {
-  if (eventDeclaresAll) return true;
+function categoryDeclaresResult(c: Category): boolean {
   return c.declare_result === true || c.declare_result === 1;
 }
 
@@ -69,14 +71,15 @@ export function EventCategoriesNomineesPanel(props: {
   mode: "categories" | "nominees";
   eventId: number;
   eventTitle: string;
-  eventDeclareResult?: boolean;
   apiBase: string;
   apiOrigin: string;
   token: string;
   onBack: () => void;
+  onGoList?: () => void;
   onGoCategories?: () => void;
+  onEventDeclareResultChange?: (next: boolean) => void;
 }) {
-  const { mode, eventId, eventTitle, eventDeclareResult = false, apiBase, apiOrigin, token, onBack, onGoCategories } = props;
+  const { mode, eventId, eventTitle, apiBase, apiOrigin, token, onBack, onGoList, onGoCategories, onEventDeclareResultChange } = props;
 
   const [adminCategories, setAdminCategories] = React.useState<Category[]>([]);
   const [adminNominees, setAdminNominees] = React.useState<Nominee[]>([]);
@@ -346,11 +349,17 @@ export function EventCategoriesNomineesPanel(props: {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "UPDATE_CATEGORY_FAILED");
+      const updated = data?.category as Category | undefined;
       setAdminCategories((prev) =>
         prev.map((cat) =>
-          cat.category_id === c.category_id ? { ...cat, declare_result: next ? 1 : 0 } : cat,
+          cat.category_id === c.category_id
+            ? updated
+              ? { ...cat, ...updated }
+              : { ...cat, declare_result: next ? 1 : 0, winner_nominee_id: next ? cat.winner_nominee_id : null }
+            : cat,
         ),
       );
+      if (!next) onEventDeclareResultChange?.(false);
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
     } finally {
@@ -479,9 +488,14 @@ export function EventCategoriesNomineesPanel(props: {
   return (
     <div className="panel" style={{ marginBottom: "2rem" }}>
       <div className="back-row" style={{ marginBottom: "1rem" }}>
-        <button type="button" className="back-link" onClick={onBack}>
-          ← Event details
-        </button>
+        <Breadcrumb
+          items={[
+            { label: "Home", href: "/" },
+            { label: "Your events", onClick: onGoList ?? onBack },
+            { label: eventTitle, onClick: onBack },
+            { label: mode === "categories" ? "Categories" : "Nominees" },
+          ]}
+        />
       </div>
 
       <div className={styles.adminCatToolbar} style={{ marginBottom: 14 }}>
@@ -522,22 +536,22 @@ export function EventCategoriesNomineesPanel(props: {
                   <div className={styles.adminRowIconGroup}>
                     <button
                       type="button"
-                      className={`${styles.adminIconBtn} ${styles.adminIconBtnDanger}`}
+                      className={styles.adminIconBtnNeutral}
+                      onClick={() => openEditCategoryModal(c)}
+                      aria-label="Edit category"
+                      title="Edit category"
+                    >
+                      <IconPencil />
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.adminIconBtnDanger}
                       onClick={() => void adminDeleteCategory(c.category_id, c.name)}
                       disabled={adminLoading}
                       aria-label={`Delete ${c.name}`}
                       title="Delete category"
                     >
                       <IconTrash />
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.adminIconBtn}
-                      onClick={() => openEditCategoryModal(c)}
-                      aria-label="Edit category"
-                      title="Edit category"
-                    >
-                      <IconPencil />
                     </button>
                   </div>
                   <div className={styles.adminCategoryTitleWrap}>
@@ -546,8 +560,6 @@ export function EventCategoriesNomineesPanel(props: {
                       <span className="event-badge badge-public" style={{ marginLeft: 8 }}>Winner set</span>
                     ) : null}
                   </div>
-                </div>
-                <div className={styles.adminCategoryRowSwitches}>
                   <label
                     className={styles.adminApproveSwitch}
                     title={categoryShowsNominees(c) ? "Nominees visible on screen" : "Nominees hidden on screen"}
@@ -566,7 +578,7 @@ export function EventCategoriesNomineesPanel(props: {
                   <label
                     className={styles.adminApproveSwitch}
                     title={
-                      categoryDeclaresResult(c, eventDeclareResult)
+                      categoryDeclaresResult(c)
                         ? "Result declared"
                         : "Result not declared"
                     }
@@ -574,13 +586,11 @@ export function EventCategoriesNomineesPanel(props: {
                     <input
                       type="checkbox"
                       role="switch"
-                      checked={c.declare_result === true || c.declare_result === 1}
-                      disabled={
-                        declareResultSavingId === c.category_id || adminLoading || eventDeclareResult
-                      }
+                      checked={categoryDeclaresResult(c)}
+                      disabled={declareResultSavingId === c.category_id || adminLoading}
                       onChange={(e) => void toggleCategoryDeclareResult(c, e.target.checked)}
                       aria-label={
-                        c.declare_result === true || c.declare_result === 1
+                        categoryDeclaresResult(c)
                           ? "Undeclare category result"
                           : "Declare category result"
                       }
@@ -589,6 +599,7 @@ export function EventCategoriesNomineesPanel(props: {
                     <span>Declare result</span>
                   </label>
                 </div>
+                
               </div>
             ))}
           </div>
@@ -650,74 +661,33 @@ export function EventCategoriesNomineesPanel(props: {
                     : "No nominees match your search or filter."}
                 </p>
               ) : (
-                <div className={styles.adminNomineeListFlat}>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                    gap: 2,
+                  }}
+                >
                   {filteredNominees.map((n) => {
                     const thumb = resolveNomineePhotoUrl(apiOrigin, n.photo);
                     const catName = categoryById.get(Number(n.category_id))?.name || "Category";
                     const approved = isApproved(n);
                     return (
-                      <div key={n.nominee_id} className={styles.adminNomineeCard}>
-                        <div className={styles.adminNomineeCardRead}>
-                          <label className={styles.adminApproveSwitch} title={approved ? "Approved" : "Unapproved"}>
-                            <input
-                              type="checkbox"
-                              role="switch"
-                              checked={approved}
-                              disabled={adminLoading}
-                              onChange={(e) => void toggleNomineeApproved(n, e.target.checked)}
-                              aria-label={approved ? `Unapprove ${n.name}` : `Approve ${n.name}`}
-                            />
-                            <span className={styles.adminApproveTrack} aria-hidden />
-                            <span>{approved ? "Approved" : "Pending"}</span>
-                          </label>
-                          <div className={styles.adminRowIconGroup}>
-                            <button
-                              type="button"
-                              className={`${styles.adminIconBtn} ${styles.adminIconBtnDanger}`}
-                              onClick={() => void adminDeleteNominee(n.nominee_id, n.name)}
-                              disabled={adminLoading}
-                              aria-label={`Delete ${n.name}`}
-                              title="Delete nominee"
-                            >
-                              <IconTrash />
-                            </button>
-                            <button
-                              type="button"
-                              className={styles.adminIconBtn}
-                              onClick={() => openEditNomineeModal(n)}
-                              aria-label={`Edit ${n.name}`}
-                              title="Edit nominee"
-                            >
-                              <IconPencil />
-                            </button>
-                          </div>
-                          <div className={styles.adminNomineeCardLeft}>
-                            {thumb ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img className={styles.adminNomineeCardPhoto} src={thumb} alt="" />
-                            ) : (
-                              <div className={styles.adminNomineeCardPhotoPlaceholder} aria-hidden />
-                            )}
-                            <div className={styles.adminNomineeCardText}>
-                              <div style={{ fontSize: 15, fontWeight: 600, whiteSpace: "normal" }}>
-                                {n.name}
-                                <span className={approved ? styles.adminBadgeApproved : styles.adminBadgePending}>
-                                  {approved ? "Approved" : "Pending"}
-                                </span>
-                              </div>
-                              <p className={styles.adminNomineeMeta}>{catName}</p>
-                              {n.description ? (
-                                <p className={styles.adminNomineeDesc}>{n.description}</p>
-                              ) : (
-                                <p className="hint" style={{ margin: "6px 0 0" }}>No description</p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      <AdminNomineeCard
+                        key={n.nominee_id}
+                        name={n.name}
+                        categoryName={catName}
+                        description={n.description}
+                        photoSrc={thumb}
+                        approved={approved}
+                        disabled={adminLoading}
+                        onEdit={() => openEditNomineeModal(n)}
+                        onDelete={() => void adminDeleteNominee(n.nominee_id, n.name)}
+                        onApprovedChange={(next) => void toggleNomineeApproved(n, next)}
+                      />
                     );
                   })}
-                </div>
+                </Box>
               )}
             </>
           )}

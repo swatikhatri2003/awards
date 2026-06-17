@@ -46,7 +46,7 @@ export function HomeExperience(props: {
               invite-only voting when you need control.
             </p>
             <div className="hxHeroActions hxHeroIn hxHeroIn--4">
-              <Link className="hxPillBtn hxPillBtn--lg" href="/admin">
+              <Link className="hxPillBtn hxPillBtn--lg" href="/admin" target="_blank" rel="noopener noreferrer">
                 Create an event
               </Link>
               <Link className="hxPillBtn hxPillBtn--lg hxPillBtn--soft" href="/events">
@@ -129,7 +129,7 @@ export function HomeExperience(props: {
           ) : events.length === 0 ? (
             <p className="hxMuted">
               No public events right now. Organisers can{" "}
-              <Link href="/admin">open the dashboard</Link> to publish one. Private events never appear
+              <Link href="/admin" target="_blank" rel="noopener noreferrer">open the dashboard</Link> to publish one. Private events never appear
               here.
             </p>
           ) : (
@@ -150,7 +150,7 @@ export function HomeExperience(props: {
       <footer className="hxFooter">
         <div className="hxFooterInner">
           <p className="hxFooterLead">
-            Running a programme? <Link href="/admin">Admin dashboard</Link>
+            Running a programme? <Link href="/admin" target="_blank" rel="noopener noreferrer">Admin dashboard</Link>
           </p>
           <p className="hxFooterNote">
             Private ballots use the link your organiser sends—they are not listed on this page.

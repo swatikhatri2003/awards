@@ -3,6 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { SiteNav } from "../_components/SiteNav";
+import { Breadcrumb } from "../_components/Breadcrumb";
 import { PublicEventsList } from "../_components/PublicEventsList";
 import type { HomePublicEvent } from "../_components/landingUtils";
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
@@ -56,7 +57,8 @@ export default function PublicEventsPage() {
       <header className="hxTop">
         <SiteNav />
         <div className="hxEventsPageHero">
-          <div className="hxEventsPageHeroRow">
+          <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "All events" }]} />
+          <div className="hxEventsPageHeroRow" style={{ marginTop: 12 }}>
             <h1 className="hxH2 hxEventsPageTitle">All public events</h1>
             <p className="hxSub hxEventsPageLead">
               Every open event is listed here. Choose one to register, then vote.
@@ -84,14 +86,6 @@ export default function PublicEventsPage() {
           )}
         </section>
       </main>
-
-      <footer className="hxFooter">
-        <div className="hxFooterInner">
-          <p className="hxFooterLead">
-            <Link href="/">← Back to home</Link>
-          </p>
-        </div>
-      </footer>
     </div>
   );
 }

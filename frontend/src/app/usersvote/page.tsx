@@ -398,18 +398,6 @@ export default function UsersVotePage() {
     >
       <h1 className="usersVoteTitle">{headerTitle}</h1>
 
-      {eventId ? (
-        <div style={{ textAlign: "center", marginBottom: 18 }}>
-          <Link
-            href={`/events/${eventId}`}
-            className="btn btnSecondary"
-            style={{ textDecoration: "none" }}
-          >
-            See event details
-          </Link>
-        </div>
-      ) : null}
-
       {error ? <div className="error">Error: {error}</div> : null}
 
       {!loadingInit && !votingWindowOpen && eventMeta?.start_time && eventMeta?.end_time ? (

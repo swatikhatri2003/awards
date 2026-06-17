@@ -43,10 +43,10 @@ export function SiteNav() {
             ))}
           </ul>
           <div className="hxNavCta">
-            <Link className="hxGhost" href="/admin" onClick={() => setOpen(false)}>
+            <Link className="hxGhost" href="/admin" target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
               Admin
             </Link>
-            <Link className="hxPillBtn" href="/admin" onClick={() => setOpen(false)}>
+            <Link className="hxPillBtn" href="/admin" target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
               Run an event
             </Link>
           </div>

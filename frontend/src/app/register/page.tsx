@@ -57,6 +57,31 @@ function RegisterContent() {
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
   }, [searchParams]);
 
+  const [eventTitle, setEventTitle] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`${apiBase}/events/${eventId}`);
+        const data = await r.json().catch(() => null);
+        if (cancelled) return;
+        if (r.ok && data?.ok && data?.event?.title) {
+          setEventTitle(String(data.event.title).trim() || null);
+        } else {
+          setEventTitle(null);
+        }
+      } catch {
+        if (!cancelled) setEventTitle(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, eventId]);
+
+  const pageTitle = eventTitle ? `Register for ${eventTitle}` : "Register";
+
   async function submitRegister(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -101,8 +126,13 @@ function RegisterContent() {
   return (
     <Shell
       bare
-      title="Register"
+      title={pageTitle}
       subtitle="Enter your details. We’ll send an OTP to your email, WhatsApp, and SMS for verification."
+      right={
+        <Link href={`/events/${eventId}`} className="linkBtn">
+          Event details
+        </Link>
+      }
     >
       {toast ? (
         <div
@@ -131,16 +161,6 @@ function RegisterContent() {
           {toast}
         </div>
       ) : null}
-
-      <div className="formActionsRow" style={{ marginBottom: 16 }}>
-        <Link
-          href={`/events/${eventId}`}
-          className="btn btnSecondary"
-          style={{ flex: 1, textAlign: "center", textDecoration: "none" }}
-        >
-          See event details
-        </Link>
-      </div>
 
       <form onSubmit={submitRegister} className="form formMotion">
         <Field

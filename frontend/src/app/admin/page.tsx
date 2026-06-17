@@ -13,7 +13,9 @@ import {
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 import { resolveEventBannerUrl } from "../_lib/resolveImageUrl";
 import { EventCategoriesNomineesPanel } from "./_components/EventCategoriesNomineesPanel";
+import { AllowedMobilesPanel } from "./_components/AllowedMobilesPanel";
 import { AdminModal } from "./_components/AdminModal";
+import { Breadcrumb } from "../_components/Breadcrumb";
 import switchStyles from "../actions/led-kiosk.module.css";
 
 type ApiEvent = {
@@ -57,7 +59,7 @@ function votingStatus(ev: ApiEvent): "open" | "upcoming" | "ended" | "always" {
   return "open";
 }
 
-type DashboardScreen = "list" | "create" | "detail" | "edit" | "categories" | "nominees";
+type DashboardScreen = "list" | "create" | "detail" | "edit" | "categories" | "nominees" | "allowed-mobiles";
 
 function parseDashboardFromSearchParams(searchParams: URLSearchParams): {
   screen: DashboardScreen;
@@ -72,6 +74,7 @@ function parseDashboardFromSearchParams(searchParams: URLSearchParams): {
   if (screenRaw === "edit" && validId) return { screen: "edit", eventId: validId };
   if (validId && panelRaw === "categories") return { screen: "categories", eventId: validId };
   if (validId && panelRaw === "nominees") return { screen: "nominees", eventId: validId };
+  if (validId && panelRaw === "allowed-mobiles") return { screen: "allowed-mobiles", eventId: validId };
   if (validId) return { screen: "detail", eventId: validId };
   return { screen: "list", eventId: null };
 }
@@ -428,28 +431,32 @@ const css = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 44px;
     flex-shrink: 0;
     align-self: center;
-    padding: 0;
+    padding: 6px;
+    border: none;
     border-radius: var(--radius);
-    border: 1px solid var(--border);
-    background: var(--surface2);
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, color 0.15s;
-  }
-  .event-icon-btn:hover:not(:disabled) { border-color: var(--border-hover); background: var(--surface3); }
-  .event-icon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-  .event-icon-btn--danger {
+    background: transparent;
     color: var(--danger);
-    background: var(--danger-dim);
-    border-color: rgba(220, 38, 38, 0.25);
+    cursor: pointer;
+    transition: opacity 0.15s;
   }
-  .event-icon-btn--danger:hover:not(:disabled) {
-    background: var(--danger);
-    border-color: var(--danger);
-    color: #fff;
+  .event-icon-btn:hover:not(:disabled) { opacity: 0.7; }
+  .event-icon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .event-icon-btn--neutral { color: var(--text-muted); }
+
+  .back-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 1.25rem;
+  }
+  .back-row-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
   }
 
   .event-card {
@@ -511,18 +518,6 @@ const css = `
     font-size: 18px;
     line-height: 1;
   }
-
-  .back-row { margin-bottom: 1.25rem; }
-  .back-link {
-    background: none;
-    border: none;
-    color: var(--accent);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 14px;
-    padding: 0;
-  }
-  .back-link:hover { text-decoration: underline; }
 
   .event-detail-panel {
     background: var(--surface);
@@ -689,12 +684,6 @@ const css = `
 
     .event-card-wrap {
       flex-direction: column;
-    }
-
-    .event-icon-btn {
-      width: 100%;
-      height: 44px;
-      align-self: stretch;
     }
 
     .event-detail-banner,
@@ -887,7 +876,7 @@ function AdminContent() {
       else if (screen === "edit" && eventId) {
         params.set("screen", "edit");
         params.set("eventId", String(eventId));
-      } else if ((screen === "categories" || screen === "nominees") && eventId) {
+      } else if ((screen === "categories" || screen === "nominees" || screen === "allowed-mobiles") && eventId) {
         params.set("eventId", String(eventId));
         params.set("panel", screen);
       } else if (screen === "detail" && eventId) {
@@ -1282,6 +1271,15 @@ function AdminContent() {
     return fullAppUrl(`/register?eventId=${eventId}`);
   }
 
+  function IconPencil(props: React.SVGProps<SVGSVGElement>) {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden {...props}>
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+      </svg>
+    );
+  }
+
   function IconTrash(props: React.SVGProps<SVGSVGElement>) {
     return (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden {...props}>
@@ -1431,6 +1429,14 @@ function AdminContent() {
 
     const eventsListSection = (
       <>
+        <div className="back-row">
+          <Breadcrumb
+            items={[
+              { label: "Home", href: "/" },
+              { label: "Your events" },
+            ]}
+          />
+        </div>
         <div className="section-head">
           <span className="section-title">Your events</span>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1451,7 +1457,7 @@ function AdminContent() {
                 <div key={ev.event_id} className="event-card-wrap">
                   <button
                     type="button"
-                    className="event-icon-btn event-icon-btn--danger"
+                    className="event-icon-btn"
                     disabled={loading}
                     aria-label={`Delete ${title}`}
                     title="Delete event"
@@ -1591,24 +1597,24 @@ function AdminContent() {
               </p>
             </div>
             <div className="event-detail-actions">
-              <button
-                type="button"
-                className="btn btn-danger"
-                disabled={loading}
-                onClick={() => void deleteEvent(ev)}
-              >
-                Delete event
-              </button>
-              <button type="button" className="btn btn-ghost" onClick={() => beginEditEvent(ev)}>Edit event</button>
               <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("categories", ev.event_id)}>
                 Categories
               </button>
               <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("nominees", ev.event_id)}>
                 Nominees
               </button>
-              <a className="btn btn-ghost" href={withBasePath(`/actions?eventId=${ev.event_id}`)} style={{ textDecoration: "none" }}>
+              <a className="btn btn-ghost" href={withBasePath(`/actions?eventId=${ev.event_id}`)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
                 LED controls
               </a>
+              {isPrivate ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => navigateDashboard("allowed-mobiles", ev.event_id)}
+                >
+                  Allowed mobiles
+                </button>
+              ) : null}
               <a className="btn btn-ghost" href={withBasePath(`/screen?eventId=${ev.event_id}`)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
                 Open LED screen
               </a>
@@ -1632,17 +1638,56 @@ function AdminContent() {
       );
     })() : (
       <div className="panel">
+        <div className="back-row">
+          <Breadcrumb
+            items={[
+              { label: "Home", href: "/" },
+              { label: "Your events", onClick: () => navigateDashboard("list") },
+              { label: "Event not found" },
+            ]}
+          />
+        </div>
         <p className="hint" style={{ padding: "1rem 0" }}>Event not found.</p>
-        <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("list")}>Back to your events</button>
       </div>
     );
 
     let dashboardBody: React.ReactNode;
     if (dashboardScreen === "detail") {
+      const detailTitle = selectedEvent ? ((selectedEvent.title || "").trim() || "Untitled") : "Event";
       dashboardBody = (
         <>
           <div className="back-row">
-            <button type="button" className="back-link" onClick={() => navigateDashboard("list")}>← Your events</button>
+            <Breadcrumb
+              items={[
+                { label: "Home", href: "/" },
+                { label: "Your events", onClick: () => navigateDashboard("list") },
+                { label: detailTitle },
+              ]}
+            />
+            {selectedEvent ? (
+              <div className="back-row-actions">
+                <button
+                  type="button"
+                  className="event-icon-btn event-icon-btn--neutral"
+                  disabled={loading}
+                  aria-label={`Edit ${detailTitle}`}
+                  title="Edit event"
+                  onClick={() => beginEditEvent(selectedEvent)}
+                >
+                  <IconPencil />
+                </button>
+                <button
+                  type="button"
+                  className="event-icon-btn"
+                  disabled={loading}
+                  aria-label={`Delete ${detailTitle}`}
+                  title="Delete event"
+                  onClick={() => void deleteEvent(selectedEvent)}
+                >
+                  <IconTrash />
+                </button>
+              </div>
+            ) : null}
           </div>
           {eventDetailSection}
         </>
@@ -1655,19 +1700,61 @@ function AdminContent() {
           mode={dashboardScreen}
           eventId={selectedEventId}
           eventTitle={(manageEvent.title || "").trim() || "Untitled"}
-          eventDeclareResult={manageEvent.declare_result === true || manageEvent.declare_result === 1}
           apiBase={apiBase}
           apiOrigin={apiOrigin}
           token={manageToken}
           onBack={() => navigateDashboard("detail", selectedEventId)}
+          onGoList={() => navigateDashboard("list")}
           onGoCategories={() => navigateDashboard("categories", selectedEventId)}
+          onEventDeclareResultChange={(next) => patchEvent(selectedEventId, { declare_result: next ? 1 : 0 })}
         />
       ) : (
         <div className="panel">
+          <div className="back-row">
+            <Breadcrumb
+              items={[
+                { label: "Home", href: "/" },
+                { label: "Your events", onClick: () => navigateDashboard("list") },
+                { label: "Event not found" },
+              ]}
+            />
+          </div>
           <p className="hint" style={{ padding: "1rem 0" }}>Event not found.</p>
-          <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("list")}>Back to your events</button>
         </div>
       );
+    } else if (dashboardScreen === "allowed-mobiles" && selectedEventId != null) {
+      const manageEvent = events.find((e) => e.event_id === selectedEventId);
+      const manageToken = readAdminToken();
+      const manageIsPrivate =
+        manageEvent?.is_private === true || manageEvent?.is_private === 1;
+      dashboardBody =
+        manageEvent && manageToken && manageIsPrivate ? (
+          <AllowedMobilesPanel
+            eventId={selectedEventId}
+            eventTitle={(manageEvent.title || "").trim() || "Untitled"}
+            apiBase={apiBase}
+            token={manageToken}
+            onBack={() => navigateDashboard("detail", selectedEventId)}
+            onGoList={() => navigateDashboard("list")}
+          />
+        ) : (
+          <div className="panel">
+            <div className="back-row">
+              <Breadcrumb
+                items={[
+                  { label: "Home", href: "/" },
+                  { label: "Your events", onClick: () => navigateDashboard("list") },
+                  { label: "Event not found" },
+                ]}
+              />
+            </div>
+            <p className="hint" style={{ padding: "1rem 0" }}>
+              {!manageEvent
+                ? "Event not found."
+                : "Allowed mobiles apply only to private events."}
+            </p>
+          </div>
+        );
     } else {
       dashboardBody = eventsListSection;
     }

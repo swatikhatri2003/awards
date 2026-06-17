@@ -8,6 +8,7 @@ import { adminAuthHeader, readAdminToken } from "../_lib/adminAuthSession";
 import { withBasePath } from "../_lib/basePath";
 import { resolveEventBannerUrl, resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
+import { Breadcrumb, type BreadcrumbItem } from "../_components/Breadcrumb";
 
 type ScreenKey = "HOME" | "CATEGORY" | "WINNER" | "QR";
 type AdminScreenKey = ScreenKey | "ADMIN";
@@ -31,14 +32,13 @@ function categoryShowsNominees(c: Category | undefined): boolean {
   return c.show_nominee === true || c.show_nominee === 1;
 }
 
-function categoryDeclaresResult(c: Category | undefined, eventDeclaresAll: boolean): boolean {
-  if (eventDeclaresAll) return true;
+function categoryDeclaresResult(c: Category | undefined): boolean {
   if (!c) return false;
   return c.declare_result === true || c.declare_result === 1;
 }
 
-function categoryHasVisibleWinner(c: Category, eventDeclaresAll: boolean): boolean {
-  if (!categoryDeclaresResult(c, eventDeclaresAll)) return false;
+function categoryHasVisibleWinner(c: Category): boolean {
+  if (!categoryDeclaresResult(c)) return false;
   const wid = c.winner_nominee_id;
   return wid != null && Number(wid) > 0;
 }
@@ -310,14 +310,14 @@ function LedDashboard({
   }, [screen, categories, loadNominees]);
 
   const visibleWinnerCategories = React.useMemo(
-    () => categories.filter((c) => categoryHasVisibleWinner(c, eventDeclareResult)),
-    [categories, eventDeclareResult],
+    () => categories.filter((c) => categoryHasVisibleWinner(c)),
+    [categories],
   );
 
   const buildWinnerEntries = React.useCallback(
-    (cats: Category[], eventDeclaresAll = eventDeclareResult): YlfWinnerEntry[] => {
+    (cats: Category[]): YlfWinnerEntry[] => {
       return cats
-        .filter((c) => categoryHasVisibleWinner(c, eventDeclaresAll))
+        .filter((c) => categoryHasVisibleWinner(c))
         .map((c) => {
           const wid = Number(c.winner_nominee_id);
           const nominee = (nomineesByCategory[c.category_id] || []).find(
@@ -334,7 +334,7 @@ function LedDashboard({
           };
         });
     },
-    [eventDeclareResult, nomineesByCategory],
+    [nomineesByCategory],
   );
 
   React.useEffect(() => {
@@ -488,8 +488,21 @@ function LedDashboard({
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "UPDATE_EVENT_FAILED");
       setEventDeclareResult(next);
+
+      const catRes = await fetch(`${apiBase}/categories?eventId=${eventId}`);
+      const catData = await catRes.json().catch(() => null);
+      const refreshed = Array.isArray(catData?.categories) ? (catData.categories as Category[]) : null;
+      const nextCategories =
+        refreshed ??
+        categories.map((c) => ({
+          ...c,
+          declare_result: next ? 1 : 0,
+          winner_nominee_id: next ? c.winner_nominee_id : null,
+        }));
+      setCategories(nextCategories);
+
       if (screen === "WINNER") {
-        void setYlfWinners(eventId, buildWinnerEntries(categories, next));
+        pushWinnersToScreen(nextCategories);
       }
     } catch (e) {
       setCategoriesError(e instanceof Error ? e.message : "UPDATE_EVENT_FAILED");
@@ -513,14 +526,19 @@ function LedDashboard({
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "UPDATE_CATEGORY_FAILED");
 
+      const updated = data?.category as Category | undefined;
       const patch = (list: Category[]) =>
         list.map((cat) =>
-          cat.category_id === c.category_id ? { ...cat, declare_result: next ? 1 : 0 } : cat,
+          cat.category_id === c.category_id
+            ? updated
+              ? { ...cat, ...updated }
+              : { ...cat, declare_result: next ? 1 : 0, winner_nominee_id: next ? cat.winner_nominee_id : null }
+            : cat,
         );
 
       const nextCategories = patch(categories);
       setCategories(nextCategories);
-      setAdminCategories((prev) => patch(prev));
+      if (!next) setEventDeclareResult(false);
 
       if (screen === "WINNER") {
         pushWinnersToScreen(nextCategories);
@@ -567,6 +585,46 @@ function LedDashboard({
   }
 
   const showCategoryDetail = screen === "CATEGORY" && !!selectedCategoryId;
+
+  const goLedHome = React.useCallback(() => {
+    setScreen("HOME");
+    setSelectedCategoryId(null);
+    void setYlfPage(eventId, "home");
+  }, [eventId]);
+
+  const goCategoriesList = React.useCallback(() => {
+    setScreen("CATEGORY");
+    setSelectedCategoryId(null);
+  }, []);
+
+  const breadcrumbItems = React.useMemo((): BreadcrumbItem[] => {
+    const eventLabel = homeEvent.name || "Event";
+    const root: BreadcrumbItem[] = [
+      { label: "Home", href: "/" },
+      { label: "LED controls", onClick: goLedHome },
+    ];
+
+    if (screen === "HOME") {
+      return [...root, { label: eventLabel }];
+    }
+
+    const withEvent: BreadcrumbItem[] = [...root, { label: eventLabel, onClick: goLedHome }];
+
+    if (screen === "CATEGORY") {
+      if (showCategoryDetail && selectedCategory) {
+        return [
+          ...withEvent,
+          { label: "Categories", onClick: goCategoriesList },
+          { label: selectedCategory.name },
+        ];
+      }
+      return [...withEvent, { label: "Categories" }];
+    }
+    if (screen === "WINNER") return [...withEvent, { label: "Winners" }];
+    if (screen === "QR") return [...withEvent, { label: "QR" }];
+    if (screen === "ADMIN") return [...withEvent, { label: "Admin" }];
+    return withEvent;
+  }, [screen, showCategoryDetail, selectedCategory, homeEvent.name, goLedHome, goCategoriesList]);
 
   const goToScreen = React.useCallback((next: ScreenKey) => {
     setScreen(next);
@@ -884,6 +942,9 @@ function LedDashboard({
 
       <div className={styles.stage}>
         <div className={styles.stageScroll}>
+        <div className={styles.actionsBreadcrumb}>
+          <Breadcrumb items={breadcrumbItems} />
+        </div>
         {screen === "HOME" ? <HomeEvent event={homeEvent} /> : null}
 
         {screen === "CATEGORY" ? (
@@ -1016,7 +1077,7 @@ function LedDashboard({
                         <label
                           className={styles.adminApproveSwitch}
                           title={
-                            categoryDeclaresResult(selectedCategory, eventDeclareResult)
+                            categoryDeclaresResult(selectedCategory)
                               ? "Result declared"
                               : "Result not declared"
                           }
@@ -1024,11 +1085,11 @@ function LedDashboard({
                           <input
                             type="checkbox"
                             role="switch"
-                            checked={selectedCategory.declare_result === true || selectedCategory.declare_result === 1}
-                            disabled={declareResultSaving || eventDeclareResult}
+                            checked={categoryDeclaresResult(selectedCategory)}
+                            disabled={declareResultSaving}
                             onChange={(e) => void toggleCategoryDeclareResult(selectedCategory, e.target.checked)}
                             aria-label={
-                              selectedCategory.declare_result === true || selectedCategory.declare_result === 1
+                              categoryDeclaresResult(selectedCategory)
                                 ? "Undeclare category result"
                                 : "Declare category result"
                             }

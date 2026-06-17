@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
+import { MuiProvider } from "./_components/MuiProvider";
 import "./globals.css";
 
 const inter = Inter({
@@ -32,7 +33,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${inter.variable} ${geistMono.variable}`}>
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        <MuiProvider>{children}</MuiProvider>
+      </body>
     </html>
   );
 }
