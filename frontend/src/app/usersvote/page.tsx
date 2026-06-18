@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Shell } from "../_components/Shell";
+import { VoterAccountMenu } from "../_components/VoterAccountMenu";
 import {
   clearCurrentUser,
   pushUserVote,
@@ -384,6 +385,7 @@ export default function UsersVotePage() {
       right={
         user ? (
           <div className="shellHeaderActionGroup">
+            <VoterAccountMenu />
             {eventId ? (
               <Link href={`/events/${eventId}`} className="linkBtn">
                 Event details

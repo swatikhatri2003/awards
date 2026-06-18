@@ -205,6 +205,74 @@ html {
   align-items: center;
 }
 
+.accountBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  text-decoration: none;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.16s ease;
+  max-width: min(220px, 42vw);
+}
+
+.accountBadge:hover {
+  background: #f8fafc;
+}
+
+.accountBadgeAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.accountBadgeName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileSummary {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+}
+
+.profileSummaryLabel {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.profileSummaryValue {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.profileSummaryMeta {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
 @media (max-width: 520px) {
   .shellHeader:not(.shellHeader--actionsOnly) .shellHeaderActions {
     width: 100%;

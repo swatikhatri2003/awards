@@ -1,0 +1,37 @@
+"use client";
+
+import React from "react";
+import Link from "next/link";
+import { readCurrentUser, type CurrentUser } from "../_lib/userSession";
+
+function initialsFor(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+export function VoterAccountMenu(props: { compact?: boolean }) {
+  const [user, setUser] = React.useState<CurrentUser | null>(null);
+
+  React.useEffect(() => {
+    setUser(readCurrentUser());
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "ylf_awards_current_user_v1") {
+        setUser(readCurrentUser());
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  if (!user) return null;
+
+  return (
+    <Link href="/profile" className="accountBadge" title={`Signed in as ${user.name}`}>
+      <span className="accountBadgeAvatar" aria-hidden>
+        {initialsFor(user.name)}
+      </span>
+      {props.compact ? null : <span className="accountBadgeName">{user.name}</span>}
+    </Link>
+  );
+}

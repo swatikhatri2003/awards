@@ -79,13 +79,20 @@ export function AdminNomineeCard(props: {
       <CardHeader
         title={name}
         subheader={categoryName}
-        titleTypographyProps={{
-          fontWeight: 800,
-          fontSize: "1rem",
-          lineHeight: 1.3,
-          sx: { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" },
+        slotProps={{
+          title: {
+            sx: {
+              fontWeight: 800,
+              fontSize: "1rem",
+              lineHeight: 1.3,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            },
+          },
+          subheader: { sx: { fontSize: "0.8rem" } },
         }}
-        subheaderTypographyProps={{ fontSize: "0.8rem" }}
         action={
           <>
             <IconButton

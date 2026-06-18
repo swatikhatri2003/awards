@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { VoterAccountMenu } from "./VoterAccountMenu";
 
 const links = [
   { href: "/#why", label: "Why us" },
@@ -43,6 +44,7 @@ export function SiteNav() {
             ))}
           </ul>
           <div className="hxNavCta">
+            <VoterAccountMenu />
             <Link className="hxGhost" href="/admin" target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
               Admin
             </Link>

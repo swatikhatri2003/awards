@@ -11,7 +11,7 @@ import {
   writeAdminSession,
 } from "../_lib/adminAuthSession";
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
-import { resolveEventBannerUrl } from "../_lib/resolveImageUrl";
+import { resolveAdminLogoUrl, resolveEventBannerUrl } from "../_lib/resolveImageUrl";
 import { EventCategoriesNomineesPanel } from "./_components/EventCategoriesNomineesPanel";
 import { AllowedMobilesPanel } from "./_components/AllowedMobilesPanel";
 import { AdminModal } from "./_components/AdminModal";
@@ -39,6 +39,22 @@ function toDatetimeLocalValue(iso: string | null | undefined): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function votingWindowError(startLocal: string, endLocal: string): string | null {
+  if ((startLocal && !endLocal) || (!startLocal && endLocal)) {
+    return "Set both voting start and end, or leave both empty.";
+  }
+  if (!startLocal || !endLocal) return null;
+  const startMs = new Date(startLocal).getTime();
+  const endMs = new Date(endLocal).getTime();
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+    return "Invalid voting window datetime.";
+  }
+  if (endMs <= startMs) {
+    return "End time must be after start time.";
+  }
+  return null;
+}
+
 function formatWhen(iso: string | null | undefined): string {
   if (iso == null || String(iso).trim() === "") return "";
   const d = new Date(iso);
@@ -59,7 +75,17 @@ function votingStatus(ev: ApiEvent): "open" | "upcoming" | "ended" | "always" {
   return "open";
 }
 
-type DashboardScreen = "list" | "create" | "detail" | "edit" | "categories" | "nominees" | "allowed-mobiles";
+type AdminProfile = {
+  adminId: number;
+  email: string;
+  name: string;
+  organisation_name: string;
+  mobile: string;
+  logo: string | null;
+  full_address: string;
+};
+
+type DashboardScreen = "list" | "create" | "detail" | "edit" | "categories" | "nominees" | "allowed-mobiles" | "profile";
 
 function parseDashboardFromSearchParams(searchParams: URLSearchParams): {
   screen: DashboardScreen;
@@ -71,6 +97,7 @@ function parseDashboardFromSearchParams(searchParams: URLSearchParams): {
   const eventId = eidRaw ? Number(eidRaw) : 0;
   const validId = Number.isFinite(eventId) && eventId > 0 ? Math.floor(eventId) : null;
   if (screenRaw === "create") return { screen: "create", eventId: null };
+  if (screenRaw === "profile") return { screen: "profile", eventId: null };
   if (screenRaw === "edit" && validId) return { screen: "edit", eventId: validId };
   if (validId && panelRaw === "categories") return { screen: "categories", eventId: validId };
   if (validId && panelRaw === "nominees") return { screen: "nominees", eventId: validId };
@@ -276,6 +303,47 @@ const css = `
   }
   .topbar-icon svg { width: 16px; height: 16px; fill: #fff; }
   .topbar-title { font-size: 16px; font-weight: 600; }
+  .topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .topbar-profile {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 999px;
+    padding: 6px 14px 6px 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    max-width: min(260px, 50vw);
+  }
+  .topbar-profile:hover { background: #f8fafc; }
+  .topbar-profile-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2563eb, #0ea5e9);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .topbar-profile-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   /* ── Section head ── */
   .section-head {
@@ -807,6 +875,16 @@ function AdminContent() {
   const [isLiveSaving, setIsLiveSaving] = React.useState(false);
   const [declareResultSaving, setDeclareResultSaving] = React.useState(false);
 
+  const [adminProfile, setAdminProfile] = React.useState<AdminProfile | null>(null);
+  const [profileName, setProfileName] = React.useState("");
+  const [profileOrganisation, setProfileOrganisation] = React.useState("");
+  const [profileMobile, setProfileMobile] = React.useState("");
+  const [profileFullAddress, setProfileFullAddress] = React.useState("");
+  const [profileLogoName, setProfileLogoName] = React.useState("");
+  const [profileLogoPreviewUrl, setProfileLogoPreviewUrl] = React.useState<string | null>(null);
+  const [profileLogoUploading, setProfileLogoUploading] = React.useState(false);
+  const [profileInfo, setProfileInfo] = React.useState<string | null>(null);
+
   const patchEvent = React.useCallback((eventId: number, patch: Partial<ApiEvent>) => {
     setEvents((prev) => prev.map((e) => (e.event_id === eventId ? { ...e, ...patch } : e)));
   }, []);
@@ -823,6 +901,31 @@ function AdminContent() {
     setEvents(Array.isArray(data?.events) ? data.events : []);
   }, [apiBase]);
 
+  const applyAdminProfile = React.useCallback((profile: AdminProfile) => {
+    setAdminProfile(profile);
+    setProfileName(profile.name || "");
+    setProfileOrganisation(profile.organisation_name || "");
+    setProfileMobile(profile.mobile || "");
+    setProfileFullAddress(profile.full_address || "");
+    const logo = (profile.logo || "").trim();
+    setProfileLogoName(logo);
+    setProfileLogoPreviewUrl(logo ? resolveAdminLogoUrl(apiOrigin, logo) : null);
+  }, [apiOrigin]);
+
+  const loadAdminProfile = React.useCallback(async () => {
+    const token = readAdminToken();
+    if (!token) return null;
+    const r = await fetch(`${apiBase}/admin/me`, { headers: { ...adminAuthHeader(token) } });
+    const data = await r.json().catch(() => null);
+    if (!r.ok) {
+      if (r.status === 401) clearAdminSession();
+      return null;
+    }
+    const profile = data?.admin as AdminProfile | undefined;
+    if (profile?.adminId) applyAdminProfile(profile);
+    return profile ?? null;
+  }, [apiBase, applyAdminProfile]);
+
   React.useEffect(() => {
     let cancelled = false;
     const token = readAdminToken();
@@ -835,6 +938,9 @@ function AdminContent() {
         const r = await fetch(`${apiBase}/admin/me`, { headers: { ...adminAuthHeader(token) } });
         if (cancelled) return;
         if (r.ok) {
+          const data = await r.json().catch(() => null);
+          const profile = data?.admin as AdminProfile | undefined;
+          if (profile?.adminId) applyAdminProfile(profile);
           setView("dashboard");
           await loadEvents();
           return;
@@ -863,7 +969,7 @@ function AdminContent() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, loadEvents]);
+  }, [apiBase, loadEvents, applyAdminProfile]);
 
   const navigateDashboard = React.useCallback(
     (screen: DashboardScreen, eventId?: number | null) => {
@@ -873,6 +979,7 @@ function AdminContent() {
       setError(null);
       const params = new URLSearchParams();
       if (screen === "create") params.set("screen", "create");
+      else if (screen === "profile") params.set("screen", "profile");
       else if (screen === "edit" && eventId) {
         params.set("screen", "edit");
         params.set("eventId", String(eventId));
@@ -902,6 +1009,11 @@ function AdminContent() {
       setEventFormModal("edit");
     }
   }, [view, searchParams]);
+
+  React.useEffect(() => {
+    if (view !== "dashboard" || adminProfile) return;
+    void loadAdminProfile();
+  }, [view, adminProfile, loadAdminProfile]);
 
   React.useEffect(() => {
     if (view !== "dashboard" || eventFormModal !== "edit" || selectedEventId == null) return;
@@ -1021,6 +1133,68 @@ function AdminContent() {
     }
   }
 
+  async function uploadProfileLogo(file: File) {
+    setProfileLogoUploading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("photo", file);
+      const r = await fetch(`${apiOrigin}/api/uploads/admin-logo`, { method: "POST", body: fd });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(data?.error || "UPLOAD_FAILED");
+      const name = String(data?.filename || "").trim();
+      if (!name) throw new Error("UPLOAD_FAILED");
+      setProfileLogoName(name);
+      setProfileLogoPreviewUrl(prev => {
+        if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+        return resolveAdminLogoUrl(apiOrigin, name);
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "UPLOAD_FAILED");
+    } finally {
+      setProfileLogoUploading(false);
+    }
+  }
+
+  async function saveAdminProfile(e: React.FormEvent) {
+    e.preventDefault();
+    const token = readAdminToken();
+    if (!token) return;
+    const name = profileName.trim();
+    const organisation_name = profileOrganisation.trim();
+    const mobile = profileMobile.trim().replace(/\s/g, "");
+    const full_address = profileFullAddress.trim();
+    if (!name || !organisation_name || !mobile || !full_address) {
+      setError("Please fill in all required profile fields.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setProfileInfo(null);
+    try {
+      const body: Record<string, string | null> = {
+        name,
+        organisation_name,
+        mobile,
+        full_address,
+      };
+      if (profileLogoName.trim()) body.logo = profileLogoName.trim();
+      const r = await fetch(`${apiBase}/admin/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(data?.message || data?.error || "PROFILE_SAVE_FAILED");
+      if (data.admin) applyAdminProfile(data.admin as AdminProfile);
+      setProfileInfo("Profile saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "PROFILE_SAVE_FAILED");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function submitRegister(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -1079,6 +1253,7 @@ function AdminContent() {
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.message || data?.error || "VERIFY_FAILED");
       writeAdminSession(data.token, data.admin);
+      if (data.admin) applyAdminProfile(data.admin as AdminProfile);
       setPassword("");
       setConfirmPassword("");
       setOtp("");
@@ -1142,6 +1317,7 @@ function AdminContent() {
         throw new Error(data?.message || data?.error || "SIGN_IN_FAILED");
       }
       writeAdminSession(data.token, data.admin);
+      if (data.admin) applyAdminProfile(data.admin as AdminProfile);
       setPassword("");
       setView("dashboard");
       await loadEvents();
@@ -1171,6 +1347,7 @@ function AdminContent() {
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.message || data?.error || "RESET_FAILED");
       writeAdminSession(data.token, data.admin);
+      if (data.admin) applyAdminProfile(data.admin as AdminProfile);
       setOtp(""); setNewPassword(""); setView("dashboard"); await loadEvents(); redirectAfterLogin();
     } catch (err) { setError(err instanceof Error ? err.message : "RESET_FAILED"); }
     finally { setLoading(false); }
@@ -1236,7 +1413,8 @@ function AdminContent() {
   async function submitCreateEvent(e: React.FormEvent) {
     e.preventDefault();
     const token = readAdminToken(); if (!token) return;
-    if ((createStartLocal && !createEndLocal) || (!createStartLocal && createEndLocal)) { setError("Set both voting start and end, or leave both empty."); return; }
+    const windowErr = votingWindowError(createStartLocal, createEndLocal);
+    if (windowErr) { setError(windowErr); return; }
     setLoading(true); setError(null);
     try {
       const isEdit = editingEventId != null;
@@ -1265,7 +1443,12 @@ function AdminContent() {
     finally { setLoading(false); }
   }
 
-  function logout() { clearAdminSession(); setView("auth"); setEvents([]); }
+  function logout() {
+    clearAdminSession();
+    setAdminProfile(null);
+    setView("auth");
+    setEvents([]);
+  }
 
   function fullRegisterUrl(eventId: number) {
     return fullAppUrl(`/register?eventId=${eventId}`);
@@ -1411,7 +1594,7 @@ function AdminContent() {
 
           <fieldset className="fieldset">
             <legend className="fieldset-legend">Voting window</legend>
-            <p className="fieldset-hint">Set both to restrict when votes count, or leave empty for open voting.</p>
+            <p className="fieldset-hint">Set both to restrict when votes count, or leave empty for open voting. End must be after start.</p>
             <div className="grid2">
               <div className="field" style={{ margin: 0 }}>
                 <div className="label">Start</div>
@@ -1419,12 +1602,99 @@ function AdminContent() {
               </div>
               <div className="field" style={{ margin: 0 }}>
                 <div className="label">End</div>
-                <input className="input" type="datetime-local" value={createEndLocal} onChange={e => setCreateEndLocal(e.target.value)} />
+                <input className="input" type="datetime-local" value={createEndLocal} min={createStartLocal || undefined} onChange={e => setCreateEndLocal(e.target.value)} />
               </div>
             </div>
           </fieldset>
 
         </form>
+    );
+
+    const adminProfileSection = (
+      <div className="panel">
+        <div className="back-row">
+          <Breadcrumb
+            items={[
+              { label: "Home", href: "/" },
+              { label: "Your events", onClick: () => navigateDashboard("list") },
+              { label: "My profile" },
+            ]}
+          />
+        </div>
+        <div className="section-head" style={{ marginTop: 8 }}>
+          <span className="section-title">My profile</span>
+        </div>
+        {profileInfo ? <p className="hint" style={{ marginBottom: 12 }}>{profileInfo}</p> : null}
+        {adminProfile ? (
+          <div className="profileSummary" style={{ marginBottom: 20 }}>
+            <div className="profileSummaryLabel">Signed in as</div>
+            <div className="profileSummaryValue">{adminProfile.name || adminProfile.email}</div>
+            <div className="profileSummaryMeta">{adminProfile.email}</div>
+          </div>
+        ) : null}
+        <form onSubmit={(e) => void saveAdminProfile(e)}>
+          <div className="field">
+            <div className="label">Your name *</div>
+            <input className="input" required value={profileName} onChange={e => setProfileName(e.target.value)} maxLength={75} />
+          </div>
+          <div className="field">
+            <div className="label">Organisation name *</div>
+            <input className="input" required value={profileOrganisation} onChange={e => setProfileOrganisation(e.target.value)} maxLength={100} />
+          </div>
+          <div className="field">
+            <div className="label">Mobile *</div>
+            <input
+              className="input"
+              type="tel"
+              required
+              value={profileMobile}
+              onChange={e => setProfileMobile(e.target.value.replace(/[^\d\s]/g, "").slice(0, 12))}
+              inputMode="numeric"
+            />
+          </div>
+          <div className="field">
+            <div className="label">Full address *</div>
+            <textarea className="input" required value={profileFullAddress} onChange={e => setProfileFullAddress(e.target.value)} maxLength={300} rows={2} />
+          </div>
+          <div className="field">
+            <div className="label">Organisation logo (optional)</div>
+            <input
+              className="input"
+              type="file"
+              accept="image/*"
+              disabled={loading || profileLogoUploading}
+              onChange={e => {
+                const f = e.currentTarget.files?.[0];
+                if (f) {
+                  setProfileLogoPreviewUrl(prev => {
+                    if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+                    return URL.createObjectURL(f);
+                  });
+                  setProfileLogoName("");
+                  void uploadProfileLogo(f);
+                }
+                e.currentTarget.value = "";
+              }}
+            />
+            {profileLogoPreviewUrl ? (
+              <div className="banner-preview" style={{ marginTop: 10 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={profileLogoPreviewUrl} alt="" style={{ height: 80, objectFit: "contain", background: "#f8fafc" }} />
+                <span className={`banner-badge ${profileLogoUploading ? "badge-busy" : profileLogoName ? "badge-ok" : "badge-preview"}`}>
+                  {profileLogoUploading ? "Uploading…" : profileLogoName ? "Logo ready" : "Preview"}
+                </span>
+              </div>
+            ) : null}
+          </div>
+          <div className="field">
+            <div className="label">Email</div>
+            <input className="input" value={adminProfile?.email || ""} disabled readOnly aria-readonly />
+          </div>
+          <button type="submit" className="btn" disabled={loading || profileLogoUploading}>
+            {loading ? "Saving…" : "Save changes"}
+          </button>
+        </form>
+      </div>
     );
 
     const eventsListSection = (
@@ -1441,6 +1711,9 @@ function AdminContent() {
           <span className="section-title">Your events</span>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 13, color: "var(--text-faint)" }}>{events.length} total</span>
+            <button type="button" className="btn btn-ghost" onClick={() => navigateDashboard("profile")}>
+              My profile
+            </button>
             <button type="button" className="btn" onClick={openCreateEvent}>Add event</button>
           </div>
         </div>
@@ -1722,6 +1995,8 @@ function AdminContent() {
           <p className="hint" style={{ padding: "1rem 0" }}>Event not found.</p>
         </div>
       );
+    } else if (dashboardScreen === "profile") {
+      dashboardBody = adminProfileSection;
     } else if (dashboardScreen === "allowed-mobiles" && selectedEventId != null) {
       const manageEvent = events.find((e) => e.event_id === selectedEventId);
       const manageToken = readAdminToken();
@@ -1768,7 +2043,22 @@ function AdminContent() {
               <div className="topbar-icon"><BoltIcon /></div>
               <span className="topbar-title">Event Admin</span>
             </div>
-            <button type="button" className="btn btn-ghost" onClick={logout}>Log out</button>
+            <div className="topbar-actions">
+              {adminProfile ? (
+                <button
+                  type="button"
+                  className="topbar-profile"
+                  onClick={() => navigateDashboard("profile")}
+                  title={`Signed in as ${adminProfile.name || adminProfile.email}`}
+                >
+                  <span className="topbar-profile-avatar" aria-hidden>
+                    {(adminProfile.name || adminProfile.email).slice(0, 2).toUpperCase()}
+                  </span>
+                  <span className="topbar-profile-name">{adminProfile.name || adminProfile.email}</span>
+                </button>
+              ) : null}
+              <button type="button" className="btn btn-ghost" onClick={logout}>Log out</button>
+            </div>
           </div>
 
           {error && <div className="error-box">{error}</div>}

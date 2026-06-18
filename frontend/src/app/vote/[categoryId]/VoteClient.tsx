@@ -3,6 +3,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { Shell } from "../../_components/Shell";
+import { VoterAccountMenu } from "../../_components/VoterAccountMenu";
 import { setYlfNomineeVotes, subscribeYlf, type YlfNominee, type YlfState } from "@/lib/firebase";
 import { readCurrentUser } from "../../_lib/userSession";
 import { getPublicApiBase } from "../../_lib/publicApiBase";
@@ -200,9 +201,12 @@ function CategoryVoteStage({
       }
       wide
       right={
-        <button className="linkBtn" type="button" onClick={onExit}>
-          Exit / change account
-        </button>
+        <div className="shellHeaderActionGroup">
+          <VoterAccountMenu />
+          <button className="linkBtn" type="button" onClick={onExit}>
+            Exit / change account
+          </button>
+        </div>
       }
     >
       {showTimer ? (

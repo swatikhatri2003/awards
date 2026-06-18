@@ -177,8 +177,11 @@ export function EventCategoriesNomineesPanel(props: {
 
   function openAddNomineeModal() {
     revokeNomineePhotoBlob();
-    const firstCat = adminCategories[0]?.category_id ?? 0;
-    setNomineeForm({ ...emptyNomineeForm(), category_id: firstCat });
+    const defaultCategoryId =
+      filterCategoryId !== "all" && adminCategories.some((c) => c.category_id === filterCategoryId)
+        ? filterCategoryId
+        : (adminCategories[0]?.category_id ?? 0);
+    setNomineeForm({ ...emptyNomineeForm(), category_id: defaultCategoryId });
     setNomineeModal({ mode: "add" });
   }
 
