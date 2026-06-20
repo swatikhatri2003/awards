@@ -17,6 +17,8 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
+  // Allow HMR/fonts when opening the dev server via LAN IP (e.g. from a phone).
+  allowedDevOrigins: isProd ? undefined : ["192.168.29.94"],
 };
 
 export default nextConfig;

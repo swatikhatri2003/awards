@@ -935,21 +935,8 @@ function AdminContent() {
     }
     void (async () => {
       try {
-        const r = await fetch(`${apiBase}/admin/me`, { headers: { ...adminAuthHeader(token) } });
+        await loadAdminProfile();
         if (cancelled) return;
-        if (r.ok) {
-          const data = await r.json().catch(() => null);
-          const profile = data?.admin as AdminProfile | undefined;
-          if (profile?.adminId) applyAdminProfile(profile);
-          setView("dashboard");
-          await loadEvents();
-          return;
-        }
-        if (r.status === 401) {
-          clearAdminSession();
-          setView("auth");
-          return;
-        }
         if (isAdminSessionValid()) {
           setView("dashboard");
           await loadEvents();
@@ -969,7 +956,7 @@ function AdminContent() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, loadEvents, applyAdminProfile]);
+  }, [loadEvents, loadAdminProfile]);
 
   const navigateDashboard = React.useCallback(
     (screen: DashboardScreen, eventId?: number | null) => {
