@@ -12,6 +12,7 @@ import {
 } from "../_lib/adminAuthSession";
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 import { resolveAdminLogoUrl, resolveEventBannerUrl } from "../_lib/resolveImageUrl";
+import { uploadAwardsPhoto } from "../_lib/presignedUpload";
 import { EventCategoriesNomineesPanel } from "./_components/EventCategoriesNomineesPanel";
 import { AllowedMobilesPanel } from "./_components/AllowedMobilesPanel";
 import { AdminModal } from "./_components/AdminModal";
@@ -1101,17 +1102,11 @@ function AdminContent() {
     setRegLogoUploading(true);
     setError(null);
     try {
-      const fd = new FormData();
-      fd.append("photo", file);
-      const r = await fetch(`${apiOrigin}/api/uploads/admin-logo`, { method: "POST", body: fd });
-      const data = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(data?.error || "UPLOAD_FAILED");
-      const name = String(data?.filename || "").trim();
-      if (!name) throw new Error("UPLOAD_FAILED");
+      const name = await uploadAwardsPhoto(file, apiBase);
       setRegLogoName(name);
       setRegLogoPreviewUrl(prev => {
         if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
-        return `${apiOrigin}/uploads/admin/${encodeURIComponent(name)}`;
+        return resolveAdminLogoUrl(apiOrigin, name);
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "UPLOAD_FAILED");
@@ -1124,13 +1119,8 @@ function AdminContent() {
     setProfileLogoUploading(true);
     setError(null);
     try {
-      const fd = new FormData();
-      fd.append("photo", file);
-      const r = await fetch(`${apiOrigin}/api/uploads/admin-logo`, { method: "POST", body: fd });
-      const data = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(data?.error || "UPLOAD_FAILED");
-      const name = String(data?.filename || "").trim();
-      if (!name) throw new Error("UPLOAD_FAILED");
+      const token = readAdminToken(); if (!token) return;
+      const name = await uploadAwardsPhoto(file, apiBase, token);
       setProfileLogoName(name);
       setProfileLogoPreviewUrl(prev => {
         if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
@@ -1385,13 +1375,8 @@ function AdminContent() {
     const token = readAdminToken(); if (!token) return;
     setUploading(true); setError(null);
     try {
-      const fd = new FormData(); fd.append("photo", file);
-      const r = await fetch(`${apiOrigin}/api/uploads/event-photo`, { method: "POST", body: fd, headers: { ...adminAuthHeader(token) } });
-      const data = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(data?.error || "UPLOAD_FAILED");
-      const name = String(data?.filename || "").trim();
-      if (!name) throw new Error("UPLOAD_FAILED");
-      setEventBannerPreviewUrl(prev => { if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev); return `${apiOrigin}/uploads/event/${encodeURIComponent(name)}`; });
+      const name = await uploadAwardsPhoto(file, apiBase, token);
+      setEventBannerPreviewUrl(prev => { if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev); return resolveEventBannerUrl(apiOrigin, name); });
       setCreateImageName(name);
     } catch (err) { setError(err instanceof Error ? err.message : "UPLOAD_FAILED"); }
     finally { setUploading(false); }

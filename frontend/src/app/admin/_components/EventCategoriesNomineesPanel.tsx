@@ -4,6 +4,7 @@ import React from "react";
 import styles from "../../actions/led-kiosk.module.css";
 import { adminAuthHeader } from "../../_lib/adminAuthSession";
 import { resolveNomineePhotoUrl } from "../../_lib/resolveImageUrl";
+import { uploadAwardsPhoto } from "../../_lib/presignedUpload";
 import { Breadcrumb } from "../../_components/Breadcrumb";
 import { AdminModal } from "./AdminModal";
 import { AdminNomineeCard } from "./AdminNomineeCard";
@@ -393,13 +394,7 @@ export function EventCategoriesNomineesPanel(props: {
     setAdminPhotoUploading(true);
     setAdminError(null);
     try {
-      const fd = new FormData();
-      fd.append("photo", file);
-      const res = await fetch(`${apiBase}/uploads/nominee-photo`, { method: "POST", body: fd });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || "PHOTO_UPLOAD_FAILED");
-      const filename = String(data?.filename || "");
-      if (!filename) throw new Error("PHOTO_UPLOAD_FAILED");
+      const filename = await uploadAwardsPhoto(file, apiBase, token);
       revokeNomineePhotoBlob();
       setNomineeForm((p) => ({ ...p, photo: filename }));
     } catch (e) {

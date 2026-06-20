@@ -13,7 +13,15 @@ function extractBasename(p: string): string {
 }
 
 export function resolveNomineePhotoUrl(apiOrigin: string, photo?: string | null): string {
-  const p = (photo || "").trim();
+  return resolveStoredImageUrl(apiOrigin, photo, "nominee");
+}
+
+function resolveStoredImageUrl(
+  apiOrigin: string,
+  stored: string | null | undefined,
+  localFolder: "nominee" | "event" | "admin",
+): string {
+  const p = (stored || "").trim();
   if (!p) return "";
   if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
   const last = extractBasename(p);
@@ -21,30 +29,18 @@ export function resolveNomineePhotoUrl(apiOrigin: string, photo?: string | null)
   const safe = encodeURIComponent(last);
   const base = apiOrigin.replace(/\/+$/, "");
   if (isApiUuidFilename(last)) {
-    return `${base}/uploads/nominee/${safe}`;
+    return `${base}/uploads/${localFolder}/${safe}`;
   }
   const cdn = DEFAULT_NOMINEE_CDN.replace(/\/+$/, "");
   return `${cdn}/${safe}`;
 }
 
-/** Admin / organisation logo under `/uploads/admin/`. */
+/** Admin / organisation logo — CDN (presigned) or legacy local `/uploads/admin/`. */
 export function resolveAdminLogoUrl(apiOrigin: string, logo?: string | null): string {
-  const p = (logo || "").trim();
-  if (!p) return "";
-  if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
-  const last = extractBasename(p);
-  if (!last) return "";
-  const base = apiOrigin.replace(/\/+$/, "");
-  return `${base}/uploads/admin/${encodeURIComponent(last)}`;
+  return resolveStoredImageUrl(apiOrigin, logo, "admin");
 }
 
-/** Event banner: served under `/uploads/event/` on the API host, or any absolute http(s) URL. */
+/** Event banner — CDN (presigned) or legacy local `/uploads/event/`. */
 export function resolveEventBannerUrl(apiOrigin: string, image?: string | null): string {
-  const p = (image || "").trim();
-  if (!p) return "";
-  if (/^https?:\/\//i.test(p) || p.startsWith("data:")) return p;
-  const last = extractBasename(p);
-  if (!last) return "";
-  const base = apiOrigin.replace(/\/+$/, "");
-  return `${base}/uploads/event/${encodeURIComponent(last)}`;
+  return resolveStoredImageUrl(apiOrigin, image, "event");
 }

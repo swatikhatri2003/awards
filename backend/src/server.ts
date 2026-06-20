@@ -12,6 +12,8 @@ import { getDb } from "./db";
 import { hashPassword, verifyPassword, signAdminToken, verifyAdminToken } from "./adminAuth";
 import { sendOtpEmail } from "./mailer";
 import { sendWhatsappOtp } from "./whatsapp";
+import { getPresignedUploadUrl, isPresignConfigured } from "./presignClient";
+import { multerHandler } from "./multerHandler";
 
 dotenv.config();
 
@@ -88,7 +90,7 @@ const eventUpload = multer({
   },
 });
 
-app.post("/api/uploads/nominee-photo", upload.single("photo"), (req, res) => {
+app.post("/api/uploads/nominee-photo", multerHandler(upload.single("photo")), (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ ok: false, error: "NO_FILE" });
   return res.json({
@@ -97,7 +99,7 @@ app.post("/api/uploads/nominee-photo", upload.single("photo"), (req, res) => {
   });
 });
 
-app.post("/api/uploads/event-photo", eventUpload.single("photo"), (req, res) => {
+app.post("/api/uploads/event-photo", multerHandler(eventUpload.single("photo")), (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ ok: false, error: "NO_FILE" });
   return res.json({
@@ -182,10 +184,27 @@ function parseSpreadsheetMobiles(buffer: Buffer, originalName: string): { mobile
   return extractMobilesFromRows(rows);
 }
 
-app.post("/api/uploads/admin-logo", adminLogoUpload.single("photo"), (req, res) => {
+app.post("/api/uploads/admin-logo", multerHandler(adminLogoUpload.single("photo")), (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ ok: false, error: "NO_FILE" });
   return res.json({ ok: true, filename: file.filename });
+});
+
+app.post("/api/uploads/presign-url", async (req, res) => {
+  const filename = String(req.body?.filename || "").trim();
+  const fltyp = String(req.body?.fltyp || "awards").trim() || "awards";
+  if (!filename) return res.status(400).json({ ok: false, success: false, error: "NO_FILENAME" });
+  if (!isPresignConfigured()) {
+    return res.status(503).json({ ok: false, success: false, error: "PRESIGN_NOT_CONFIGURED" });
+  }
+  try {
+    const data = await getPresignedUploadUrl(filename, fltyp);
+    return res.json({ ok: true, success: true, data });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "PRESIGN_FAILED";
+    console.error("presign-url error", e);
+    return res.status(502).json({ ok: false, success: false, error: "PRESIGN_FAILED", message });
+  }
 });
 
 app.get("/api/health", (_req, res) => {
@@ -1217,7 +1236,7 @@ app.post("/api/admin/events/:eventId/allowed-mobiles/bulk", async (req, res) => 
 
 app.post(
   "/api/admin/events/:eventId/allowed-mobiles/upload",
-  allowedMobilesUpload.single("file"),
+  multerHandler(allowedMobilesUpload.single("file")),
   async (req, res) => {
     const admin = await loadAdminFromRequest(req);
     if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });

@@ -7,6 +7,7 @@ import { setYlfCategory, setYlfGraph, setYlfPage, setYlfTimer, setYlfWinners, ty
 import { adminAuthHeader, readAdminToken } from "../_lib/adminAuthSession";
 import { withBasePath } from "../_lib/basePath";
 import { resolveEventBannerUrl, resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
+import { uploadAwardsPhoto } from "../_lib/presignedUpload";
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 import { Breadcrumb, type BreadcrumbItem } from "../_components/Breadcrumb";
 
@@ -868,13 +869,7 @@ function LedDashboard({
     setAdminPhotoUploading(true);
     setAdminError(null);
     try {
-      const fd = new FormData();
-      fd.append("photo", file);
-      const res = await fetch(`${apiBase}/uploads/nominee-photo`, { method: "POST", body: fd });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || "PHOTO_UPLOAD_FAILED");
-      const filename = String(data?.filename || "");
-      if (!filename) throw new Error("PHOTO_UPLOAD_FAILED");
+      const filename = await uploadAwardsPhoto(file, apiBase, token);
       if (mode === "modal") {
         revokeNomineePhotoBlob();
         setAdminNomineeForm((p) => ({ ...p, photo: filename }));
