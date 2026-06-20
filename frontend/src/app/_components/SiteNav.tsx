@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { AdminAccountMenu } from "./AdminAccountMenu";
 import { VoterAccountMenu } from "./VoterAccountMenu";
 
 const links = [
@@ -44,7 +45,8 @@ export function SiteNav() {
             ))}
           </ul>
           <div className="hxNavCta">
-            <VoterAccountMenu />
+            <VoterAccountMenu onNavigate={() => setOpen(false)} />
+            <AdminAccountMenu onNavigate={() => setOpen(false)} />
             <Link className="hxGhost" href="/admin" target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
               Admin
             </Link>

@@ -1,13 +1,15 @@
 /** Admin stays signed in for 7 days unless they log out (matches backend JWT TTL). */
 export const ADMIN_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-const SESSION_KEY = "awards_event_admin_session_v2";
+export const ADMIN_SESSION_STORAGE_KEY = "awards_event_admin_session_v2";
+const SESSION_KEY = ADMIN_SESSION_STORAGE_KEY;
 const LEGACY_TOKEN_KEY = "awards_event_admin_token_v1";
 const LEGACY_META_KEY = "awards_event_admin_meta_v1";
 
 export type AdminMeta = {
   adminId: number;
   email: string;
+  name?: string;
 };
 
 type StoredAdminSession = {

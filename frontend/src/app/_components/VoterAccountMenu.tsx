@@ -10,24 +10,33 @@ function initialsFor(name: string) {
   return name.slice(0, 2).toUpperCase();
 }
 
-export function VoterAccountMenu(props: { compact?: boolean }) {
+export function VoterAccountMenu(props: { compact?: boolean; onNavigate?: () => void }) {
   const [user, setUser] = React.useState<CurrentUser | null>(null);
 
   React.useEffect(() => {
-    setUser(readCurrentUser());
+    const refresh = () => setUser(readCurrentUser());
+    refresh();
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "ylf_awards_current_user_v1") {
-        setUser(readCurrentUser());
-      }
+      if (e.key === "ylf_awards_current_user_v1" || e.key === null) refresh();
     };
+    const onFocus = () => refresh();
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", onFocus);
+    };
   }, []);
 
   if (!user) return null;
 
   return (
-    <Link href="/profile" className="accountBadge" title={`Signed in as ${user.name}`}>
+    <Link
+      href="/profile"
+      className="accountBadge"
+      title={`Signed in as ${user.name}`}
+      onClick={props.onNavigate}
+    >
       <span className="accountBadgeAvatar" aria-hidden>
         {initialsFor(user.name)}
       </span>

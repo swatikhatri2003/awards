@@ -239,6 +239,10 @@ html {
   flex-shrink: 0;
 }
 
+.accountBadge--admin .accountBadgeAvatar {
+  background: linear-gradient(135deg, #7c3aed, #db2777);
+}
+
 .accountBadgeName {
   overflow: hidden;
   text-overflow: ellipsis;

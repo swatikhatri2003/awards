@@ -1,10 +1,13 @@
-/** Default backend host when NEXT_PUBLIC_API_BASE_URL is unset. */
+/** Default production backend host when NEXT_PUBLIC_API_BASE_URL is unset. */
 export const DEFAULT_PUBLIC_API_HOST = "http://3.0.81.7";
+
+/** Local backend used in `next dev` when env is unset. */
+const DEV_DEFAULT_API_HOST = "http://localhost:4000";
 
 /**
  * Public API base URL (path ending in `/api`).
  * NEXT_PUBLIC_* is inlined at build time — a mistaken localhost value breaks production.
- * In the browser, if env points to loopback but the page is served from a real host, we use same-origin `/api`.
+ * In the browser, if env points to loopback but the page is served from a LAN IP, we target that host on port 4000 in dev.
  */
 export function normalizeApiBase(raw: string) {
   const root = raw.replace(/\/+$/, "");
@@ -16,6 +19,9 @@ function envPointsToLoopback(base: string): boolean {
 }
 
 function defaultApiBase(): string {
+  if (process.env.NODE_ENV !== "production") {
+    return normalizeApiBase(DEV_DEFAULT_API_HOST);
+  }
   return normalizeApiBase(DEFAULT_PUBLIC_API_HOST);
 }
 
@@ -32,6 +38,9 @@ export function getPublicApiBase(): string {
     const onLoopback = host === "localhost" || host === "127.0.0.1";
     const envIsLoopback = envPointsToLoopback(fromEnv);
     if (envIsLoopback && !onLoopback) {
+      if (process.env.NODE_ENV !== "production") {
+        return normalizeApiBase(`http://${host}:4000`);
+      }
       return `${window.location.origin}/api`;
     }
   }

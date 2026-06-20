@@ -893,13 +893,17 @@ function AdminContent() {
   const loadEvents = React.useCallback(async () => {
     const token = readAdminToken();
     if (!token) return;
-    const r = await fetch(`${apiBase}/admin/events`, { headers: { ...adminAuthHeader(token) } });
-    const data = await r.json().catch(() => null);
-    if (!r.ok) {
-      if (r.status === 401) clearAdminSession();
-      return;
+    try {
+      const r = await fetch(`${apiBase}/admin/events`, { headers: { ...adminAuthHeader(token) } });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) {
+        if (r.status === 401) clearAdminSession();
+        return;
+      }
+      setEvents(Array.isArray(data?.events) ? data.events : []);
+    } catch {
+      setError("Could not reach the API. Ensure the backend is running on port 4000.");
     }
-    setEvents(Array.isArray(data?.events) ? data.events : []);
   }, [apiBase]);
 
   const applyAdminProfile = React.useCallback((profile: AdminProfile) => {
@@ -916,15 +920,20 @@ function AdminContent() {
   const loadAdminProfile = React.useCallback(async () => {
     const token = readAdminToken();
     if (!token) return null;
-    const r = await fetch(`${apiBase}/admin/me`, { headers: { ...adminAuthHeader(token) } });
-    const data = await r.json().catch(() => null);
-    if (!r.ok) {
-      if (r.status === 401) clearAdminSession();
+    try {
+      const r = await fetch(`${apiBase}/admin/me`, { headers: { ...adminAuthHeader(token) } });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) {
+        if (r.status === 401) clearAdminSession();
+        return null;
+      }
+      const profile = data?.admin as AdminProfile | undefined;
+      if (profile?.adminId) applyAdminProfile(profile);
+      return profile ?? null;
+    } catch {
+      setError("Could not reach the API. Ensure the backend is running on port 4000.");
       return null;
     }
-    const profile = data?.admin as AdminProfile | undefined;
-    if (profile?.adminId) applyAdminProfile(profile);
-    return profile ?? null;
   }, [apiBase, applyAdminProfile]);
 
   React.useEffect(() => {
