@@ -380,6 +380,20 @@ const adminVerifyRegistrationSchema = z.object({
   otp: z.string().regex(/^\d{6}$/),
 });
 
+const adminProfilePatchSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name is required.").max(75),
+    organisation_name: z.string().trim().min(1, "Organisation name is required.").max(100),
+    mobile: z
+      .string()
+      .trim()
+      .regex(/^\d{10,12}$/, "Mobile must be 10–12 digits (numbers only)."),
+    logo: z.string().trim().max(50).optional().nullable(),
+    full_address: z.string().trim().min(1, "Address is required.").max(300),
+  })
+  .partial()
+  .refine((data) => Object.keys(data).length > 0, { message: "No fields to update." });
+
 function adminRegistrationOtp(): { otp: string; expires: Date } {
   const otp = String(Math.floor(100000 + Math.random() * 900000));
   const expires = new Date(Date.now() + 10 * 60 * 1000);
@@ -784,6 +798,49 @@ app.get("/api/admin/me", async (req, res) => {
   const admin = await loadAdminFromRequest(req);
   if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
   return res.json({ ok: true, admin });
+});
+
+app.patch("/api/admin/me", async (req, res) => {
+  const admin = await loadAdminFromRequest(req);
+  if (!admin) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+  const parsed = adminProfilePatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const msg = parsed.error.issues[0]?.message || "Invalid input.";
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT", message: msg });
+  }
+  const patch = parsed.data;
+  try {
+    const logoStored =
+      patch.logo === undefined
+        ? undefined
+        : patch.logo && String(patch.logo).trim()
+          ? storedUploadBasename(String(patch.logo)) || null
+          : null;
+    await db.execute(
+      `UPDATE event_admin SET
+         name = COALESCE(:name, name),
+         organisation_name = COALESCE(:organisation_name, organisation_name),
+         mobile = COALESCE(:mobile, mobile),
+         logo = CASE WHEN :logo_set = 1 THEN :logo ELSE logo END,
+         full_address = COALESCE(:full_address, full_address)
+       WHERE admin_id = :id`,
+      {
+        id: admin.adminId,
+        name: patch.name ?? null,
+        organisation_name: patch.organisation_name ?? null,
+        mobile: patch.mobile ?? null,
+        logo: logoStored ?? null,
+        logo_set: patch.logo !== undefined ? 1 : 0,
+        full_address: patch.full_address ?? null,
+      },
+    );
+    const updated = await loadAdminFromRequest(req);
+    if (!updated) return res.status(500).json({ ok: false, error: "DB_ERROR" });
+    return res.json({ ok: true, admin: updated });
+  } catch (e) {
+    console.error("admin profile patch error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
 });
 
 app.get("/api/admin/events", async (req, res) => {
@@ -2037,6 +2094,25 @@ const verifySchema = z.object({
   otp: z.string().regex(/^\d{6}$/),
 });
 
+const userProfileQuerySchema = z.object({
+  uid: z.coerce.number().int().positive(),
+});
+
+const userProfilePatchSchema = z.object({
+  uid: z.coerce.number().int().positive(),
+  name: z.string().trim().min(1).max(100),
+  mobile: z
+    .string()
+    .trim()
+    .transform((v) => v.replace(/[^\d]/g, ""))
+    .refine((v) => v.length >= 8 && v.length <= 15),
+  membershipNumber: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v && v.length ? v : undefined)),
+});
+
 app.post("/api/auth/verify", async (req, res) => {
   const parsed = verifySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -2090,6 +2166,76 @@ app.post("/api/auth/verify", async (req, res) => {
     });
   } catch (e) {
     console.error("verify db error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+function mapUserProfileRow(user: RowDataPacket) {
+  return {
+    id: Number(user.id),
+    name: String(user.name ?? ""),
+    email: String(user.email ?? ""),
+    mobile: String(user.phone ?? ""),
+    membershipNumber: user.membership_no != null ? String(user.membership_no) : undefined,
+    eventId: user.event_id != null ? Number(user.event_id) : undefined,
+  };
+}
+
+app.get("/api/users/profile", async (req, res) => {
+  const parsed = userProfileQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT" });
+  }
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT id, name, email, phone, membership_no, event_id, verified_at
+       FROM users WHERE id = :id LIMIT 1`,
+      { id: parsed.data.uid },
+    );
+    const user = rows[0];
+    if (!user || !user.verified_at) {
+      return res.status(404).json({ ok: false, error: "NOT_FOUND" });
+    }
+    return res.json({ ok: true, profile: mapUserProfileRow(user) });
+  } catch (e) {
+    console.error("user profile get error", e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.patch("/api/users/profile", async (req, res) => {
+  const parsed = userProfilePatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, error: "INVALID_INPUT" });
+  }
+  const { uid, name, mobile, membershipNumber } = parsed.data;
+  const membershipNo = membershipNumber ? Number(membershipNumber) : null;
+  if (membershipNumber && Number.isNaN(membershipNo)) {
+    return res.status(400).json({ ok: false, error: "INVALID_MEMBERSHIP_NUMBER" });
+  }
+  try {
+    const [rows] = await db.execute<RowDataPacket[]>(
+      `SELECT id, verified_at FROM users WHERE id = :id LIMIT 1`,
+      { id: uid },
+    );
+    const user = rows[0];
+    if (!user || !user.verified_at) {
+      return res.status(404).json({ ok: false, error: "NOT_FOUND" });
+    }
+    await db.execute(
+      `UPDATE users SET name = :name, phone = :phone, membership_no = :membership_no WHERE id = :id`,
+      { id: uid, name, phone: mobile, membership_no: membershipNo },
+    );
+    const [updatedRows] = await db.execute<RowDataPacket[]>(
+      `SELECT id, name, email, phone, membership_no, event_id, verified_at
+       FROM users WHERE id = :id LIMIT 1`,
+      { id: uid },
+    );
+    const updated = updatedRows[0];
+    if (!updated) return res.status(500).json({ ok: false, error: "DB_ERROR" });
+    return res.json({ ok: true, profile: mapUserProfileRow(updated) });
+  } catch (e) {
+    console.error("user profile patch error", e);
     return res.status(500).json({ ok: false, error: "DB_ERROR" });
   }
 });
