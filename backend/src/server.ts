@@ -22,10 +22,24 @@ const db = getDb();
 
 const PORT = Number(process.env.PORT || 4000);
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
+const CORS_ORIGINS = CORS_ORIGIN.split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function isDevLocalOrigin(origin: string): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/i.test(origin);
+}
 
 app.use(
   cors({
-    origin: CORS_ORIGIN,
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (CORS_ORIGINS.includes(origin)) return callback(null, true);
+      if (process.env.NODE_ENV !== "production" && isDevLocalOrigin(origin)) {
+        return callback(null, true);
+      }
+      callback(null, false);
+    },
     credentials: true,
   }),
 );
