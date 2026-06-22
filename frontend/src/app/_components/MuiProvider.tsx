@@ -1,6 +1,7 @@
 "use client";
 
-import * as React from "react";
+import type { ReactNode } from "react";
+import { ToastProvider } from "./ToastProvider";
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v16-appRouter";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 
@@ -39,11 +40,13 @@ const theme = createTheme({
   },
 });
 
-export function MuiProvider({ children }: { children: React.ReactNode }) {
+export function MuiProvider({ children }: { children: ReactNode }) {
   return (
     <AppRouterCacheProvider>
       <ThemeProvider theme={theme}>
-        <div className="appRoot">{children}</div>
+        <ToastProvider>
+          <div className="appRoot">{children}</div>
+        </ToastProvider>
       </ThemeProvider>
     </AppRouterCacheProvider>
   );

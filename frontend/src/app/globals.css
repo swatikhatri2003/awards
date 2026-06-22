@@ -225,6 +225,11 @@ html {
   background: #f8fafc;
 }
 
+.accountBadge--compact {
+  padding: 4px;
+  max-width: none;
+}
+
 .accountBadgeAvatar {
   width: 28px;
   height: 28px;

@@ -3,6 +3,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { Field, Shell } from "../_components/Shell";
+import { useToast } from "../_components/ToastProvider";
 import { clearPendingRegistration, readPendingRegistration } from "../_lib/authSession";
 import { getPublicApiBase } from "../_lib/publicApiBase";
 import { writeCurrentUser } from "../_lib/userSession";
@@ -30,8 +31,8 @@ function friendlyError(code: string) {
 
 export default function OtpPage() {
   const router = useRouter();
+  const { toastError } = useToast();
   const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
   const [otp, setOtp] = React.useState("");
   const [pending, setPending] = React.useState<ReturnType<typeof readPendingRegistration>>(null);
 
@@ -47,7 +48,6 @@ export default function OtpPage() {
     e.preventDefault();
     if (!pending) return;
     setLoading(true);
-    setError(null);
     try {
       const res = await fetch(`${apiBase}/auth/verify`, {
         method: "POST",
@@ -72,7 +72,7 @@ export default function OtpPage() {
 
       router.push("/usersvote");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "OTP_VERIFY_FAILED");
+      toastError(err instanceof Error ? err.message : "OTP_VERIFY_FAILED");
     } finally {
       setLoading(false);
     }
@@ -102,8 +102,6 @@ export default function OtpPage() {
           placeholder="6-digit OTP"
           inputMode="numeric"
         />
-
-        {error ? <div className="error">Error: {error}</div> : null}
 
         <button className="btn btnLg" disabled={loading || !pending}>
           {loading ? "Verifying..." : "Verify OTP"}

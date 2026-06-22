@@ -3,6 +3,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { Shell } from "../../_components/Shell";
+import { useToast } from "../../_components/ToastProvider";
 import { VoterAccountMenu } from "../../_components/VoterAccountMenu";
 import { setYlfNomineeVotes, subscribeYlf, type YlfNominee, type YlfState } from "@/lib/firebase";
 import { readCurrentUser } from "../../_lib/userSession";
@@ -100,11 +101,10 @@ function CategoryVoteStage({
 }) {
   const nominees = React.useMemo(() => normalizeNominees(category.nominees), [category.nominees]);
   const apiOrigin = React.useMemo(() => apiBase.replace(/\/api$/i, ""), [apiBase]);
+  const { toastError, toastSuccess } = useToast();
 
   const [selectedNomineeId, setSelectedNomineeId] = React.useState<number | null>(null);
   const [voting, setVoting] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [success, setSuccess] = React.useState<string | null>(null);
   const [votedNomineeId, setVotedNomineeId] = React.useState<number | null>(null);
   const [tick, setTick] = React.useState(0);
 
@@ -123,8 +123,6 @@ function CategoryVoteStage({
 
   React.useEffect(() => {
     setSelectedNomineeId(null);
-    setError(null);
-    setSuccess(null);
     const map = readVotedMap();
     const prev = map[String(category.id)];
     setVotedNomineeId(typeof prev === "number" ? prev : null);
@@ -142,8 +140,6 @@ function CategoryVoteStage({
   async function submitVote() {
     if (!selectedNomineeId || votedNomineeId !== null || !votingWindowOpen) return;
     setVoting(true);
-    setError(null);
-    setSuccess(null);
     try {
       const currentUser = readCurrentUser();
       const res = await fetch(`${apiBase}/nominees/${selectedNomineeId}/vote`, {
@@ -176,9 +172,9 @@ function CategoryVoteStage({
       map[String(category.id)] = selectedNomineeId;
       writeVotedMap(map);
       setVotedNomineeId(selectedNomineeId);
-      setSuccess("Thank you! Your vote has been recorded.");
+      toastSuccess("Thank you! Your vote has been recorded.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "VOTE_FAILED");
+      toastError(e instanceof Error ? e.message : "VOTE_FAILED");
     } finally {
       setVoting(false);
     }
@@ -272,9 +268,6 @@ function CategoryVoteStage({
           </div>
         </div>
       ) : null}
-
-      {error ? <div className="error">Error: {friendlyError(error)}</div> : null}
-      {success ? <div className="hint">{success}</div> : null}
 
       {alreadyVoted ? (
         <section className="panel" aria-label="Vote receipt">

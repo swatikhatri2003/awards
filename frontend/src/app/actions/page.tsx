@@ -10,6 +10,7 @@ import { resolveEventBannerUrl, resolveNomineePhotoUrl } from "../_lib/resolveIm
 import { uploadAwardsPhoto } from "../_lib/presignedUpload";
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 import { Breadcrumb, type BreadcrumbItem } from "../_components/Breadcrumb";
+import { useToast } from "../_components/ToastProvider";
 
 type ScreenKey = "HOME" | "CATEGORY" | "WINNER" | "QR";
 type AdminScreenKey = ScreenKey | "ADMIN";
@@ -173,9 +174,9 @@ function LedDashboard({
     };
   }, [apiBase, apiOrigin, eventId]);
 
+  const { toastError } = useToast();
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [categoriesLoading, setCategoriesLoading] = React.useState(false);
-  const [categoriesError, setCategoriesError] = React.useState<string | null>(null);
 
   const [selectedCategoryId, setSelectedCategoryId] = React.useState<number | null>(null);
   const [nomineesByCategory, setNomineesByCategory] = React.useState<Record<number, Nominee[]>>({});
@@ -191,7 +192,6 @@ function LedDashboard({
     if (screen !== "CATEGORY" && screen !== "WINNER") return;
     const ac = new AbortController();
     setCategoriesLoading(true);
-    setCategoriesError(null);
     fetch(`${apiBase}/categories?eventId=${eventId}`, { signal: ac.signal })
       .then(async (r) => {
         const data = await r.json().catch(() => null);
@@ -209,7 +209,7 @@ function LedDashboard({
       })
       .catch((e) => {
         if ((e as { name?: string })?.name === "AbortError") return;
-        setCategoriesError(e instanceof Error ? e.message : "CATEGORIES_FAILED");
+        toastError(e instanceof Error ? e.message : "CATEGORIES_FAILED");
       })
       .finally(() => setCategoriesLoading(false));
     return () => ac.abort();
@@ -222,7 +222,6 @@ function LedDashboard({
     allNomineesLoadedRef.current = false;
     allNomineesInflightRef.current = null;
     setCategories([]);
-    setCategoriesError(null);
     setNomineesByCategory({});
     setNomineesLoadingByCategory({});
     setNomineesErrorByCategory({});
@@ -285,15 +284,17 @@ function LedDashboard({
           return next;
         });
       } catch (e) {
+        const msg = e instanceof Error ? e.message : "NOMINEES_FAILED";
+        toastError(msg);
         setNomineesErrorByCategory((p) => ({
           ...p,
-          [categoryId]: e instanceof Error ? e.message : "NOMINEES_FAILED",
+          [categoryId]: msg,
         }));
       } finally {
         setNomineesLoadingByCategory((p) => ({ ...p, [categoryId]: false }));
       }
     },
-    [fetchAllNominees, nomineesByCategory],
+    [fetchAllNominees, nomineesByCategory, toastError],
   );
 
   React.useEffect(() => {
@@ -453,7 +454,6 @@ function LedDashboard({
 
   async function toggleEventIsLive(next: boolean) {
     setIsLiveSaving(true);
-    setCategoriesError(null);
     try {
       const res = await fetch(`${apiBase}/admin/events/${eventId}`, {
         method: "PATCH",
@@ -464,7 +464,7 @@ function LedDashboard({
       if (!res.ok) throw new Error(data?.error || "UPDATE_EVENT_FAILED");
       setEventIsLive(next);
     } catch (e) {
-      setCategoriesError(e instanceof Error ? e.message : "UPDATE_EVENT_FAILED");
+      toastError(e instanceof Error ? e.message : "UPDATE_EVENT_FAILED");
     } finally {
       setIsLiveSaving(false);
     }
@@ -479,7 +479,6 @@ function LedDashboard({
 
   async function toggleEventDeclareResult(next: boolean) {
     setDeclareResultSaving(true);
-    setCategoriesError(null);
     try {
       const res = await fetch(`${apiBase}/admin/events/${eventId}`, {
         method: "PATCH",
@@ -506,7 +505,7 @@ function LedDashboard({
         pushWinnersToScreen(nextCategories);
       }
     } catch (e) {
-      setCategoriesError(e instanceof Error ? e.message : "UPDATE_EVENT_FAILED");
+      toastError(e instanceof Error ? e.message : "UPDATE_EVENT_FAILED");
     } finally {
       setDeclareResultSaving(false);
     }
@@ -514,7 +513,6 @@ function LedDashboard({
 
   async function toggleCategoryDeclareResult(c: Category, next: boolean) {
     setDeclareResultSaving(true);
-    setCategoriesError(null);
     try {
       const res = await fetch(
         `${apiBase}/admin/categories/${c.category_id}?eventId=${eventId}`,
@@ -545,7 +543,7 @@ function LedDashboard({
         pushWinnersToScreen(nextCategories);
       }
     } catch (e) {
-      setCategoriesError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
+      toastError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
     } finally {
       setDeclareResultSaving(false);
     }
@@ -553,7 +551,6 @@ function LedDashboard({
 
   async function toggleCategoryShowNominee(c: Category, next: boolean) {
     setShowNomineeSaving(true);
-    setCategoriesError(null);
     try {
       const res = await fetch(
         `${apiBase}/admin/categories/${c.category_id}?eventId=${eventId}`,
@@ -579,7 +576,7 @@ function LedDashboard({
         pushCategoryToScreen({ ...c, show_nominee: next ? 1 : 0 }, nominees);
       }
     } catch (e) {
-      setCategoriesError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
+      toastError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
     } finally {
       setShowNomineeSaving(false);
     }
@@ -640,7 +637,6 @@ function LedDashboard({
 
   const [adminCategories, setAdminCategories] = React.useState<Category[]>([]);
   const [adminLoading, setAdminLoading] = React.useState(false);
-  const [adminError, setAdminError] = React.useState<string | null>(null);
   const [adminNominees, setAdminNominees] = React.useState<Nominee[]>([]);
   const [adminCategoryNameDraft, setAdminCategoryNameDraft] = React.useState("");
   const [adminNewCategoryName, setAdminNewCategoryName] = React.useState("");
@@ -667,7 +663,6 @@ function LedDashboard({
 
   const loadAdminData = React.useCallback(async () => {
     setAdminLoading(true);
-    setAdminError(null);
     try {
       const [catsRes, nomsRes] = await Promise.all([
         fetch(`${apiBase}/categories?eventId=${eventId}`),
@@ -687,7 +682,7 @@ function LedDashboard({
       setAdminCategories(nextCats);
       setAdminNominees(nextNoms);
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "ADMIN_LOAD_FAILED");
+      toastError(e instanceof Error ? e.message : "ADMIN_LOAD_FAILED");
     } finally {
       setAdminLoading(false);
     }
@@ -722,7 +717,6 @@ function LedDashboard({
     const name = adminNewCategoryName.trim();
     if (!name) return;
     setAdminLoading(true);
-    setAdminError(null);
     try {
       const res = await fetch(`${apiBase}/admin/categories`, {
         method: "POST",
@@ -735,7 +729,7 @@ function LedDashboard({
       setAddCategoryOpen(false);
       await loadAdminData();
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "CREATE_CATEGORY_FAILED");
+      toastError(e instanceof Error ? e.message : "CREATE_CATEGORY_FAILED");
     } finally {
       setAdminLoading(false);
     }
@@ -751,7 +745,6 @@ function LedDashboard({
         ? Number(keepWinner)
         : null;
     setAdminLoading(true);
-    setAdminError(null);
     try {
       const res = await fetch(
         `${apiBase}/admin/categories/${adminCategoryEditId}?eventId=${eventId}`,
@@ -766,7 +759,7 @@ function LedDashboard({
       setAdminCategoryEditId(null);
       await loadAdminData();
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
+      toastError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
     } finally {
       setAdminLoading(false);
     }
@@ -783,7 +776,6 @@ function LedDashboard({
     const name = adminNomineeForm.name.trim();
     if (!name) return;
     setAdminLoading(true);
-    setAdminError(null);
     try {
       const res = await fetch(`${apiBase}/admin/nominees?eventId=${eventId}`, {
         method: "POST",
@@ -800,7 +792,7 @@ function LedDashboard({
       closeNomineeModal();
       await loadAdminData();
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "SAVE_NOMINEE_FAILED");
+      toastError(e instanceof Error ? e.message : "SAVE_NOMINEE_FAILED");
     } finally {
       setAdminLoading(false);
     }
@@ -813,11 +805,10 @@ function LedDashboard({
     const cat = adminNominees.find((n) => n.nominee_id === nomineeInlineEdit.nominee_id);
     const category_id = cat ? Number(cat.category_id) : null;
     if (category_id == null || !Number.isFinite(category_id)) {
-      setAdminError("SAVE_NOMINEE_FAILED");
+      toastError("SAVE_NOMINEE_FAILED");
       return;
     }
     setAdminLoading(true);
-    setAdminError(null);
     try {
       const res = await fetch(
         `${apiBase}/admin/nominees/${nomineeInlineEdit.nominee_id}?eventId=${eventId}`,
@@ -839,7 +830,7 @@ function LedDashboard({
       setNomineeInlineEdit(null);
       await loadAdminData();
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "SAVE_NOMINEE_FAILED");
+      toastError(e instanceof Error ? e.message : "SAVE_NOMINEE_FAILED");
     } finally {
       setAdminLoading(false);
     }
@@ -867,7 +858,6 @@ function LedDashboard({
 
   async function adminUploadNomineePhoto(file: File, mode: "modal" | "inline" = "modal") {
     setAdminPhotoUploading(true);
-    setAdminError(null);
     try {
       const filename = await uploadAwardsPhoto(file, apiBase, token);
       if (mode === "modal") {
@@ -877,7 +867,7 @@ function LedDashboard({
         setNomineeInlineEdit((p) => (p ? { ...p, photo: filename } : null));
       }
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "PHOTO_UPLOAD_FAILED");
+      toastError(e instanceof Error ? e.message : "PHOTO_UPLOAD_FAILED");
     } finally {
       setAdminPhotoUploading(false);
     }
@@ -913,6 +903,7 @@ function LedDashboard({
         } catch (e) {
           const msg = e instanceof Error ? e.message : "NOMINEES_FAILED";
           console.error(`[UI] Failed to fetch nominees for category ${c.category_id}:`, msg);
+          toastError(msg);
           setNomineesErrorByCategory((p) => ({ ...p, [c.category_id]: msg }));
           nominees = [];
         } finally {
@@ -949,11 +940,9 @@ function LedDashboard({
                 <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
                   <div className={styles.sectionTitle}>Categories</div>
                   <div className="panelMeta">
-                    {categoriesLoading ? "Loading..." : categoriesError ? "Failed" : `${categories.length} categories`}
+                    {categoriesLoading ? "Loading..." : `${categories.length} categories`}
                   </div>
                 </div>
-
-                {categoriesError ? <div className="error" style={{ marginTop: 12 }}>Error: {categoriesError}</div> : null}
 
                 <div className={styles.categoryPickGrid} role="list">
                   {categories.map((c) => (
@@ -1168,7 +1157,6 @@ function LedDashboard({
                     </div>
                   </div>
 
-                  {selectedNomineesError ? <div className="error">Error: {selectedNomineesError}</div> : null}
                   {selectedNomineesLoading ? <div className="hint">Loading nominees...</div> : null}
                   {!selectedNomineesLoading && !selectedNomineesError && selectedNominees.length === 0 ? (
                     <div className="hint">No nominees found for this category.</div>
@@ -1237,16 +1225,12 @@ function LedDashboard({
                 <div className="panelMeta">
                   {categoriesLoading
                     ? "Loading..."
-                    : categoriesError
-                      ? "Failed"
-                      : `${visibleWinnerCategories.length} declared`}
+                    : `${visibleWinnerCategories.length} declared`}
                 </div>
               </div>
             </div>
 
-            {categoriesError ? <div className="error" style={{ marginTop: 12 }}>Error: {categoriesError}</div> : null}
-
-            {!categoriesLoading && !categoriesError && visibleWinnerCategories.length === 0 ? (
+            {!categoriesLoading && visibleWinnerCategories.length === 0 ? (
               <div className="hint" style={{ marginTop: 16 }}>
                 No declared results yet — set a winner in Admin and turn on Declare result (category) or Declare all results (event).
               </div>
@@ -1350,12 +1334,6 @@ function LedDashboard({
                 </a>
               </div>
             </div>
-
-            {adminError ? (
-              <div className="error" style={{ marginTop: 12 }}>
-                Error: {adminError}
-              </div>
-            ) : null}
 
             <div className={styles.adminCategoriesBlock}>
               <div className={styles.adminCatToolbar}>

@@ -33,8 +33,9 @@ export function VoterAccountMenu(props: { compact?: boolean; onNavigate?: () => 
   return (
     <Link
       href="/profile"
-      className="accountBadge"
+      className={["accountBadge", props.compact ? "accountBadge--compact" : ""].filter(Boolean).join(" ")}
       title={`Signed in as ${user.name}`}
+      aria-label={`My profile (${user.name})`}
       onClick={props.onNavigate}
     >
       <span className="accountBadgeAvatar" aria-hidden>

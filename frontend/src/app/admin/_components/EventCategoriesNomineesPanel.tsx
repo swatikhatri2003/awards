@@ -6,6 +6,7 @@ import { adminAuthHeader } from "../../_lib/adminAuthSession";
 import { resolveNomineePhotoUrl } from "../../_lib/resolveImageUrl";
 import { uploadAwardsPhoto } from "../../_lib/presignedUpload";
 import { Breadcrumb } from "../../_components/Breadcrumb";
+import { useToast } from "../../_components/ToastProvider";
 import { AdminModal } from "./AdminModal";
 import { AdminNomineeCard } from "./AdminNomineeCard";
 import Box from "@mui/material/Box";
@@ -81,11 +82,11 @@ export function EventCategoriesNomineesPanel(props: {
   onEventDeclareResultChange?: (next: boolean) => void;
 }) {
   const { mode, eventId, eventTitle, apiBase, apiOrigin, token, onBack, onGoList, onGoCategories, onEventDeclareResultChange } = props;
+  const { toastError } = useToast();
 
   const [adminCategories, setAdminCategories] = React.useState<Category[]>([]);
   const [adminNominees, setAdminNominees] = React.useState<Nominee[]>([]);
   const [adminLoading, setAdminLoading] = React.useState(false);
-  const [adminError, setAdminError] = React.useState<string | null>(null);
 
   const [categoryModal, setCategoryModal] = React.useState<CategoryModalState>(null);
   const [categoryNameDraft, setCategoryNameDraft] = React.useState("");
@@ -109,7 +110,6 @@ export function EventCategoriesNomineesPanel(props: {
 
   const loadAdminData = React.useCallback(async () => {
     setAdminLoading(true);
-    setAdminError(null);
     try {
       const auth = adminAuthHeader(token);
       const [catsRes, nomsRes] = await Promise.all([
@@ -127,7 +127,7 @@ export function EventCategoriesNomineesPanel(props: {
       setAdminCategories(nextCats);
       setAdminNominees(Array.isArray(nomsData?.nominees) ? (nomsData.nominees as Nominee[]) : []);
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "ADMIN_LOAD_FAILED");
+      toastError(e instanceof Error ? e.message : "ADMIN_LOAD_FAILED");
     } finally {
       setAdminLoading(false);
     }
@@ -207,7 +207,6 @@ export function EventCategoriesNomineesPanel(props: {
     const name = categoryNameDraft.trim();
     if (!name) return;
     setAdminLoading(true);
-    setAdminError(null);
     try {
       if (categoryModal?.mode === "add") {
         const res = await fetch(`${apiBase}/admin/categories`, {
@@ -229,7 +228,7 @@ export function EventCategoriesNomineesPanel(props: {
       closeCategoryModal();
       await loadAdminData();
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "SAVE_CATEGORY_FAILED");
+      toastError(e instanceof Error ? e.message : "SAVE_CATEGORY_FAILED");
     } finally {
       setAdminLoading(false);
     }
@@ -239,7 +238,6 @@ export function EventCategoriesNomineesPanel(props: {
     const label = categoryName.trim() || "this category";
     if (!window.confirm(`Delete "${label}" and all its nominees? This cannot be undone.`)) return;
     setAdminLoading(true);
-    setAdminError(null);
     try {
       const res = await fetch(`${apiBase}/admin/categories/${categoryId}?eventId=${eventId}`, {
         method: "DELETE",
@@ -250,7 +248,7 @@ export function EventCategoriesNomineesPanel(props: {
       if (categoryModal?.mode === "edit" && categoryModal.categoryId === categoryId) closeCategoryModal();
       await loadAdminData();
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "DELETE_CATEGORY_FAILED");
+      toastError(e instanceof Error ? e.message : "DELETE_CATEGORY_FAILED");
     } finally {
       setAdminLoading(false);
     }
@@ -260,7 +258,6 @@ export function EventCategoriesNomineesPanel(props: {
     const name = nomineeForm.name.trim();
     if (!name || !nomineeForm.category_id) return;
     setAdminLoading(true);
-    setAdminError(null);
     try {
       if (nomineeModal?.mode === "add") {
         const res = await fetch(`${apiBase}/admin/nominees?eventId=${eventId}`, {
@@ -292,7 +289,7 @@ export function EventCategoriesNomineesPanel(props: {
       closeNomineeModal();
       await loadAdminData();
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "SAVE_NOMINEE_FAILED");
+      toastError(e instanceof Error ? e.message : "SAVE_NOMINEE_FAILED");
     } finally {
       setAdminLoading(false);
     }
@@ -302,7 +299,6 @@ export function EventCategoriesNomineesPanel(props: {
     const label = nomineeName.trim() || "this nominee";
     if (!window.confirm(`Delete "${label}"? Votes for this nominee will be removed.`)) return;
     setAdminLoading(true);
-    setAdminError(null);
     try {
       const res = await fetch(`${apiBase}/admin/nominees/${nomineeId}?eventId=${eventId}`, {
         method: "DELETE",
@@ -313,7 +309,7 @@ export function EventCategoriesNomineesPanel(props: {
       if (nomineeModal?.mode === "edit" && nomineeModal.nomineeId === nomineeId) closeNomineeModal();
       await loadAdminData();
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "DELETE_NOMINEE_FAILED");
+      toastError(e instanceof Error ? e.message : "DELETE_NOMINEE_FAILED");
     } finally {
       setAdminLoading(false);
     }
@@ -321,7 +317,6 @@ export function EventCategoriesNomineesPanel(props: {
 
   async function toggleCategoryShowNominee(c: Category, next: boolean) {
     setShowNomineeSavingId(c.category_id);
-    setAdminError(null);
     try {
       const res = await fetch(`${apiBase}/admin/categories/${c.category_id}?eventId=${eventId}`, {
         method: "PATCH",
@@ -336,7 +331,7 @@ export function EventCategoriesNomineesPanel(props: {
         ),
       );
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
+      toastError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
     } finally {
       setShowNomineeSavingId(null);
     }
@@ -344,7 +339,6 @@ export function EventCategoriesNomineesPanel(props: {
 
   async function toggleCategoryDeclareResult(c: Category, next: boolean) {
     setDeclareResultSavingId(c.category_id);
-    setAdminError(null);
     try {
       const res = await fetch(`${apiBase}/admin/categories/${c.category_id}?eventId=${eventId}`, {
         method: "PATCH",
@@ -365,7 +359,7 @@ export function EventCategoriesNomineesPanel(props: {
       );
       if (!next) onEventDeclareResultChange?.(false);
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
+      toastError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
     } finally {
       setDeclareResultSavingId(null);
     }
@@ -373,7 +367,6 @@ export function EventCategoriesNomineesPanel(props: {
 
   async function toggleNomineeApproved(n: Nominee, nextApproved: boolean) {
     setAdminLoading(true);
-    setAdminError(null);
     try {
       const res = await fetch(`${apiBase}/admin/nominees/${n.nominee_id}?eventId=${eventId}`, {
         method: "PATCH",
@@ -384,7 +377,7 @@ export function EventCategoriesNomineesPanel(props: {
       if (!res.ok) throw new Error(data?.error || "APPROVAL_UPDATE_FAILED");
       await loadAdminData();
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "APPROVAL_UPDATE_FAILED");
+      toastError(e instanceof Error ? e.message : "APPROVAL_UPDATE_FAILED");
     } finally {
       setAdminLoading(false);
     }
@@ -392,13 +385,12 @@ export function EventCategoriesNomineesPanel(props: {
 
   async function adminUploadNomineePhoto(file: File) {
     setAdminPhotoUploading(true);
-    setAdminError(null);
     try {
       const filename = await uploadAwardsPhoto(file, apiBase, token);
       revokeNomineePhotoBlob();
       setNomineeForm((p) => ({ ...p, photo: filename }));
     } catch (e) {
-      setAdminError(e instanceof Error ? e.message : "PHOTO_UPLOAD_FAILED");
+      toastError(e instanceof Error ? e.message : "PHOTO_UPLOAD_FAILED");
     } finally {
       setAdminPhotoUploading(false);
     }
@@ -509,8 +501,6 @@ export function EventCategoriesNomineesPanel(props: {
               : `${filteredNominees.length}${filterCategoryId !== "all" || searchQuery.trim() ? ` of ${adminNominees.length}` : ""} nominees`}
         </span>
       </div>
-
-      {adminError ? <div className="error-box" style={{ marginBottom: 12 }}>{adminError}</div> : null}
 
       {mode === "categories" ? (
         <div className={styles.adminCategoriesBlock} style={{ marginTop: 0 }}>

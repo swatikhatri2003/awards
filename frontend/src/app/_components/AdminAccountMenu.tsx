@@ -66,8 +66,9 @@ export function AdminAccountMenu(props: { compact?: boolean; onNavigate?: () => 
   return (
     <Link
       href="/admin?screen=profile"
-      className="accountBadge accountBadge--admin"
+      className={["accountBadge accountBadge--admin", props.compact ? "accountBadge--compact" : ""].filter(Boolean).join(" ")}
       title={`Admin signed in as ${label}`}
+      aria-label={`Admin profile (${label})`}
       onClick={props.onNavigate}
     >
       <span className="accountBadgeAvatar" aria-hidden>

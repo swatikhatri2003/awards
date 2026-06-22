@@ -4,6 +4,7 @@ import React, { Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Field, Shell } from "../_components/Shell";
+import { useToast } from "../_components/ToastProvider";
 import { writePendingRegistration } from "../_lib/authSession";
 import { getPublicApiBase } from "../_lib/publicApiBase";
 
@@ -27,22 +28,8 @@ function friendlyError(code: string) {
 function RegisterContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { toastError } = useToast();
   const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [toast, setToast] = React.useState<string | null>(null);
-  const toastTimerRef = React.useRef<number | null>(null);
-
-  const showToast = React.useCallback((msg: string, durationMs = 5000) => {
-    setToast(msg);
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = window.setTimeout(() => setToast(null), durationMs);
-  }, []);
-
-  React.useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    };
-  }, []);
 
   const [form, setForm] = React.useState({
     name: "",
@@ -85,7 +72,6 @@ function RegisterContent() {
   async function submitRegister(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setError(null);
     try {
       const payload: Record<string, string> = {
         name: form.name.trim(),
@@ -102,11 +88,7 @@ function RegisterContent() {
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         const code = data?.error || "REGISTER_FAILED";
-        const message = friendlyError(code);
-        if (code === "MOBILE_NOT_ALLOWED") {
-          showToast(message);
-        }
-        throw new Error(message);
+        throw new Error(friendlyError(code));
       }
 
       writePendingRegistration({
@@ -117,7 +99,7 @@ function RegisterContent() {
       });
       router.push("/otp");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "REGISTER_FAILED");
+      toastError(err instanceof Error ? err.message : "REGISTER_FAILED");
     } finally {
       setLoading(false);
     }
@@ -134,34 +116,6 @@ function RegisterContent() {
         </Link>
       }
     >
-      {toast ? (
-        <div
-          role="alert"
-          aria-live="assertive"
-          onClick={() => setToast(null)}
-          style={{
-            position: "fixed",
-            top: "max(16px, env(safe-area-inset-top, 0px))",
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 1000,
-            padding: "12px 18px",
-            borderRadius: 12,
-            background: "#fee2e2",
-            color: "#7f1d1d",
-            border: "1px solid #fecaca",
-            boxShadow: "0 12px 30px rgba(0,0,0,0.18)",
-            fontWeight: 600,
-            fontSize: 14,
-            maxWidth: "min(92vw, 480px)",
-            textAlign: "center",
-            cursor: "pointer",
-          }}
-        >
-          {toast}
-        </div>
-      ) : null}
-
       <form onSubmit={submitRegister} className="form formMotion">
         <Field
           label="Full Name"
@@ -189,8 +143,6 @@ function RegisterContent() {
           inputMode="tel"
           maxLength={10}
         />
-
-        {error ? <div className="error">Error: {error}</div> : null}
 
         <button type="submit" className="btn btnLg" disabled={loading}>
           {loading ? "Sending OTP..." : "Register & Send OTP"}

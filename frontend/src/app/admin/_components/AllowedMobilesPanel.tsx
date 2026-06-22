@@ -4,6 +4,7 @@ import React from "react";
 import styles from "../../actions/led-kiosk.module.css";
 import { adminAuthHeader } from "../../_lib/adminAuthSession";
 import { Breadcrumb } from "../../_components/Breadcrumb";
+import { useToast } from "../../_components/ToastProvider";
 import { AdminModal } from "./AdminModal";
 
 type AllowedMobile = {
@@ -50,12 +51,11 @@ export function AllowedMobilesPanel(props: {
   onGoList?: () => void;
 }) {
   const { eventId, eventTitle, apiBase, token, onBack, onGoList } = props;
+  const { toastError, toastSuccess } = useToast();
 
   const [rows, setRows] = React.useState<AllowedMobile[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [info, setInfo] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [modal, setModal] = React.useState<MobileModalState>(null);
   const [mobileDraft, setMobileDraft] = React.useState("");
@@ -64,7 +64,6 @@ export function AllowedMobilesPanel(props: {
 
   const loadRows = React.useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const res = await fetch(`${apiBase}/admin/events/${eventId}/allowed-mobiles`, {
         headers: { ...adminAuthHeader(token) },
@@ -73,7 +72,7 @@ export function AllowedMobilesPanel(props: {
       if (!res.ok) throw new Error(data?.message || data?.error || "LOAD_FAILED");
       setRows(Array.isArray(data?.allowed_mobiles) ? (data.allowed_mobiles as AllowedMobile[]) : []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "LOAD_FAILED");
+      toastError(e instanceof Error ? e.message : "LOAD_FAILED");
     } finally {
       setLoading(false);
     }
@@ -115,8 +114,6 @@ export function AllowedMobilesPanel(props: {
     const mobile = mobileDraft.trim();
     if (!mobile) return;
     setLoading(true);
-    setError(null);
-    setInfo(null);
     try {
       if (modal?.mode === "add") {
         const res = await fetch(`${apiBase}/admin/events/${eventId}/allowed-mobiles`, {
@@ -138,7 +135,7 @@ export function AllowedMobilesPanel(props: {
       closeModal();
       await loadRows();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "SAVE_FAILED");
+      toastError(e instanceof Error ? e.message : "SAVE_FAILED");
     } finally {
       setLoading(false);
     }
@@ -148,8 +145,6 @@ export function AllowedMobilesPanel(props: {
     const label = row.mobile || "this number";
     if (!window.confirm(`Remove ${label} from the allowlist?`)) return;
     setLoading(true);
-    setError(null);
-    setInfo(null);
     try {
       const res = await fetch(`${apiBase}/admin/events/${eventId}/allowed-mobiles/${row.id}`, {
         method: "DELETE",
@@ -160,7 +155,7 @@ export function AllowedMobilesPanel(props: {
       if (modal?.mode === "edit" && modal.id === row.id) closeModal();
       await loadRows();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "DELETE_FAILED");
+      toastError(e instanceof Error ? e.message : "DELETE_FAILED");
     } finally {
       setLoading(false);
     }
@@ -168,8 +163,6 @@ export function AllowedMobilesPanel(props: {
 
   async function uploadSpreadsheet(file: File) {
     setUploading(true);
-    setError(null);
-    setInfo(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -183,10 +176,10 @@ export function AllowedMobilesPanel(props: {
       const inserted = Number(data?.inserted ?? 0);
       const skipped = Number(data?.skipped ?? 0);
       const invalid = Number(data?.invalid ?? 0);
-      setInfo(`Import done: ${inserted} added, ${skipped} skipped, ${invalid} invalid.`);
+      toastSuccess(`Import done: ${inserted} added, ${skipped} skipped, ${invalid} invalid.`);
       await loadRows();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "UPLOAD_FAILED");
+      toastError(e instanceof Error ? e.message : "UPLOAD_FAILED");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -221,23 +214,6 @@ export function AllowedMobilesPanel(props: {
       <p className="hint" style={{ marginBottom: 12 }}>
         Only these mobile numbers can register for this private event. Upload Excel or CSV (mobile in column A, optional note in column B) or add numbers manually.
       </p>
-
-      {error ? <div className="error-box" style={{ marginBottom: 12 }}>{error}</div> : null}
-      {info ? (
-        <p
-          className="hint"
-          style={{
-            marginBottom: 12,
-            color: "var(--success)",
-            border: "1px solid rgba(5,150,105,0.25)",
-            borderRadius: 8,
-            padding: "10px 12px",
-            background: "rgba(5,150,105,0.08)",
-          }}
-        >
-          {info}
-        </p>
-      ) : null}
 
       <div className={styles.adminNomineeToolbar} style={{ marginBottom: 14 }}>
         <input

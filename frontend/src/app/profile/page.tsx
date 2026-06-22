@@ -8,9 +8,11 @@ import { VoterAccountMenu } from "../_components/VoterAccountMenu";
 import {
   clearCurrentUser,
   readCurrentUser,
+  readUid,
   writeCurrentUser,
   type CurrentUser,
 } from "../_lib/userSession";
+import { useToast } from "../_components/ToastProvider";
 import { getPublicApiBase } from "../_lib/publicApiBase";
 
 function normalizeMobile(v: string) {
@@ -20,11 +22,10 @@ function normalizeMobile(v: string) {
 function ProfileContent() {
   const router = useRouter();
   const apiBase = getPublicApiBase();
+  const { toastError, toastSuccess } = useToast();
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [info, setInfo] = React.useState<string | null>(null);
   const [user, setUser] = React.useState<CurrentUser | null>(null);
   const [form, setForm] = React.useState({
     name: "",
@@ -41,7 +42,6 @@ function ProfileContent() {
     let cancelled = false;
     void (async () => {
       setLoading(true);
-      setError(null);
       try {
         const r = await fetch(`${apiBase}/users/profile?uid=${current.id}`);
         const data = await r.json().catch(() => null);
@@ -71,7 +71,7 @@ function ProfileContent() {
             mobile: current.mobile,
             membershipNumber: current.membershipNumber ?? "",
           });
-          setError(e instanceof Error ? e.message : "PROFILE_LOAD_FAILED");
+          toastError(e instanceof Error ? e.message : "PROFILE_LOAD_FAILED");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -88,12 +88,10 @@ function ProfileContent() {
     const name = form.name.trim();
     const mobile = normalizeMobile(form.mobile);
     if (!name || mobile.length < 8) {
-      setError("Name and a valid mobile number are required.");
+      toastError("Name and a valid mobile number are required.");
       return;
     }
     setSaving(true);
-    setError(null);
-    setInfo(null);
     try {
       const r = await fetch(`${apiBase}/users/profile`, {
         method: "PATCH",
@@ -118,9 +116,9 @@ function ProfileContent() {
       };
       setUser(updated);
       writeCurrentUser(updated);
-      setInfo("Profile saved.");
+      toastSuccess("Profile saved.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "PROFILE_SAVE_FAILED");
+      toastError(e instanceof Error ? e.message : "PROFILE_SAVE_FAILED");
     } finally {
       setSaving(false);
     }
@@ -154,9 +152,6 @@ function ProfileContent() {
         </div>
       }
     >
-      {error ? <div className="error">Error: {error}</div> : null}
-      {info ? <div className="hint" style={{ marginBottom: 12 }}>{info}</div> : null}
-
       <div className="profileSummary" style={{ marginBottom: 20 }}>
         <div className="profileSummaryLabel">Signed in as</div>
         <div className="profileSummaryValue">{user.name}</div>

@@ -11,10 +11,9 @@ export type { HomePublicEvent };
 export function HomeExperience(props: {
   events: HomePublicEvent[];
   eventsLoading: boolean;
-  eventsError: string | null;
   apiOrigin: string;
 }) {
-  const { events, eventsLoading, eventsError, apiOrigin } = props;
+  const { events, eventsLoading, apiOrigin } = props;
   const previewEvents = events.slice(0, HOME_EVENTS_PREVIEW_LIMIT);
   const hasMoreEvents = events.length > HOME_EVENTS_PREVIEW_LIMIT;
 
@@ -124,8 +123,6 @@ export function HomeExperience(props: {
 
           {eventsLoading ? (
             <p className="hxMuted hxShimmer">Loading events…</p>
-          ) : eventsError ? (
-            <p className="hxError">{eventsError}</p>
           ) : events.length === 0 ? (
             <p className="hxMuted">
               No public events right now. Organisers can{" "}

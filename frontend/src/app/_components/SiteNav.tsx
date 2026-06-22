@@ -45,8 +45,8 @@ export function SiteNav() {
             ))}
           </ul>
           <div className="hxNavCta">
-            <VoterAccountMenu onNavigate={() => setOpen(false)} />
-            <AdminAccountMenu onNavigate={() => setOpen(false)} />
+            <VoterAccountMenu compact onNavigate={() => setOpen(false)} />
+            <AdminAccountMenu compact onNavigate={() => setOpen(false)} />
             <Link className="hxGhost" href="/admin" target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
               Admin
             </Link>

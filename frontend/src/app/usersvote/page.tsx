@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Shell } from "../_components/Shell";
+import { useToast } from "../_components/ToastProvider";
 import { VoterAccountMenu } from "../_components/VoterAccountMenu";
 import {
   clearCurrentUser,
@@ -108,6 +109,7 @@ export default function UsersVotePage() {
   const router = useRouter();
   const apiBase = getPublicApiBase();
   const apiOrigin = getUploadsOrigin();
+  const { toastError } = useToast();
 
   const [user, setUser] = React.useState<ReturnType<typeof readCurrentUser>>(null);
   const [uid, setUid] = React.useState<number | null>(null);
@@ -120,7 +122,6 @@ export default function UsersVotePage() {
 
   const [selectedNomineeId, setSelectedNomineeId] = React.useState<number | null>(null);
   const [voting, setVoting] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
   const [voted, setVoted] = React.useState(false);
   const [votedNomineeId, setVotedNomineeId] = React.useState<number | null>(null);
   const [done, setDone] = React.useState(false);
@@ -184,7 +185,7 @@ export default function UsersVotePage() {
         const rawNoms = nomData?.nominees;
         setAllNominees(Array.isArray(rawNoms) ? (rawNoms as Nominee[]) : []);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load data.");
+        toastError(err instanceof Error ? err.message : "Failed to load data.");
       } finally {
         setLoadingInit(false);
       }
@@ -209,7 +210,6 @@ export default function UsersVotePage() {
   }, [allNominees, activeCategory]);
 
   React.useEffect(() => {
-    setError(null);
     if (!activeCategory) {
       setSelectedNomineeId(null);
       setVoted(false);
@@ -233,17 +233,16 @@ export default function UsersVotePage() {
   async function submitVote() {
     if (!activeCategory || !selectedNomineeId || !user) return;
     if (!votingWindowOpen) {
-      setError(friendlyError("VOTING_WINDOW_CLOSED"));
+      toastError(friendlyError("VOTING_WINDOW_CLOSED"));
       return;
     }
     const userId = uid ?? user.id;
     if (!userId) {
-      setError("Missing user id. Please login again.");
+      toastError("Missing user id. Please login again.");
       return;
     }
 
     setVoting(true);
-    setError(null);
     try {
       const res = await fetch(`${apiBase}/votes`, {
         method: "POST",
@@ -284,7 +283,7 @@ export default function UsersVotePage() {
         at: Date.now(),
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Vote failed.");
+      toastError(err instanceof Error ? err.message : "Vote failed.");
     } finally {
       setVoting(false);
     }
@@ -399,8 +398,6 @@ export default function UsersVotePage() {
       }
     >
       <h1 className="usersVoteTitle">{headerTitle}</h1>
-
-      {error ? <div className="error">Error: {error}</div> : null}
 
       {!loadingInit && !votingWindowOpen && eventMeta?.start_time && eventMeta?.end_time ? (
         <div className="voteClosedHint">

@@ -5,35 +5,35 @@ import Link from "next/link";
 import { SiteNav } from "../_components/SiteNav";
 import { Breadcrumb } from "../_components/Breadcrumb";
 import { PublicEventsList } from "../_components/PublicEventsList";
+import { useToast } from "../_components/ToastProvider";
 import type { HomePublicEvent } from "../_components/landingUtils";
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 
 export default function PublicEventsPage() {
   const apiBase = getPublicApiBase();
   const apiOrigin = getUploadsOrigin();
+  const { toastError } = useToast();
 
   const [events, setEvents] = React.useState<HomePublicEvent[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
     void (async () => {
       setLoading(true);
-      setError(null);
       try {
         const r = await fetch(`${apiBase}/public/events`);
         const data = await r.json().catch(() => null);
         if (cancelled) return;
         if (!r.ok || !data?.ok) {
-          setError("Could not load events. Please try again later.");
+          toastError("Could not load events. Please try again later.");
           setEvents([]);
           return;
         }
         setEvents(Array.isArray(data.events) ? data.events : []);
       } catch {
         if (!cancelled) {
-          setError("Could not load events. Check your connection.");
+          toastError("Could not load events. Check your connection.");
           setEvents([]);
         }
       } finally {
@@ -74,8 +74,6 @@ export default function PublicEventsPage() {
           </h2>
           {loading ? (
             <p className="hxMuted hxShimmer">Loading events…</p>
-          ) : error ? (
-            <p className="hxError">{error}</p>
           ) : events.length === 0 ? (
             <p className="hxMuted">
               No public events right now. Organisers can{" "}

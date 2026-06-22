@@ -17,6 +17,7 @@ import { EventCategoriesNomineesPanel } from "./_components/EventCategoriesNomin
 import { AllowedMobilesPanel } from "./_components/AllowedMobilesPanel";
 import { AdminModal } from "./_components/AdminModal";
 import { Breadcrumb } from "../_components/Breadcrumb";
+import { useToast } from "../_components/ToastProvider";
 import switchStyles from "../actions/led-kiosk.module.css";
 
 type ApiEvent = {
@@ -316,15 +317,12 @@ const css = `
     border: 1px solid var(--border);
     background: #fff;
     border-radius: 999px;
-    padding: 6px 14px 6px 6px;
+    padding: 4px;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    justify-content: center;
     cursor: pointer;
     color: var(--text);
-    font-size: 14px;
-    font-weight: 600;
-    max-width: min(260px, 50vw);
   }
   .topbar-profile:hover { background: #f8fafc; }
   .topbar-profile-avatar {
@@ -340,12 +338,6 @@ const css = `
     justify-content: center;
     flex-shrink: 0;
   }
-  .topbar-profile-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   /* ── Section head ── */
   .section-head {
     display: flex;
@@ -843,8 +835,13 @@ function AdminContent() {
     "boot" | "auth" | "forgot" | "reset" | "register" | "register-verify" | "dashboard"
   >("boot");
   const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [info, setInfo] = React.useState<string | null>(null);
+  const { toastError, toastSuccess } = useToast();
+
+  React.useEffect(() => {
+    if (view === "dashboard" && !readAdminToken()) {
+      toastError("Session missing — please log in again.");
+    }
+  }, [view, toastError]);
 
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -884,7 +881,6 @@ function AdminContent() {
   const [profileLogoName, setProfileLogoName] = React.useState("");
   const [profileLogoPreviewUrl, setProfileLogoPreviewUrl] = React.useState<string | null>(null);
   const [profileLogoUploading, setProfileLogoUploading] = React.useState(false);
-  const [profileInfo, setProfileInfo] = React.useState<string | null>(null);
 
   const patchEvent = React.useCallback((eventId: number, patch: Partial<ApiEvent>) => {
     setEvents((prev) => prev.map((e) => (e.event_id === eventId ? { ...e, ...patch } : e)));
@@ -902,7 +898,7 @@ function AdminContent() {
       }
       setEvents(Array.isArray(data?.events) ? data.events : []);
     } catch {
-      setError("Could not reach the API. Ensure the backend is running on port 4000.");
+      toastError("Could not reach the API. Ensure the backend is running on port 4000.");
     }
   }, [apiBase]);
 
@@ -931,7 +927,7 @@ function AdminContent() {
       if (profile?.adminId) applyAdminProfile(profile);
       return profile ?? null;
     } catch {
-      setError("Could not reach the API. Ensure the backend is running on port 4000.");
+      toastError("Could not reach the API. Ensure the backend is running on port 4000.");
       return null;
     }
   }, [apiBase, applyAdminProfile]);
@@ -973,7 +969,6 @@ function AdminContent() {
       setDashboardScreen(screen);
       setSelectedEventId(eventId ?? null);
       setCopyDone(false);
-      setError(null);
       const params = new URLSearchParams();
       if (screen === "create") params.set("screen", "create");
       else if (screen === "profile") params.set("screen", "profile");
@@ -1070,7 +1065,6 @@ function AdminContent() {
   }
 
   function openRegister() {
-    setError(null);
     setConfirmPassword("");
     setOtp("");
     resetRegisterFields();
@@ -1109,7 +1103,6 @@ function AdminContent() {
 
   async function uploadRegisterLogo(file: File) {
     setRegLogoUploading(true);
-    setError(null);
     try {
       const name = await uploadAwardsPhoto(file, apiBase);
       setRegLogoName(name);
@@ -1118,7 +1111,7 @@ function AdminContent() {
         return resolveAdminLogoUrl(apiOrigin, name);
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "UPLOAD_FAILED");
+      toastError(err instanceof Error ? err.message : "UPLOAD_FAILED");
     } finally {
       setRegLogoUploading(false);
     }
@@ -1126,7 +1119,6 @@ function AdminContent() {
 
   async function uploadProfileLogo(file: File) {
     setProfileLogoUploading(true);
-    setError(null);
     try {
       const token = readAdminToken(); if (!token) return;
       const name = await uploadAwardsPhoto(file, apiBase, token);
@@ -1136,7 +1128,7 @@ function AdminContent() {
         return resolveAdminLogoUrl(apiOrigin, name);
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "UPLOAD_FAILED");
+      toastError(err instanceof Error ? err.message : "UPLOAD_FAILED");
     } finally {
       setProfileLogoUploading(false);
     }
@@ -1151,12 +1143,10 @@ function AdminContent() {
     const mobile = profileMobile.trim().replace(/\s/g, "");
     const full_address = profileFullAddress.trim();
     if (!name || !organisation_name || !mobile || !full_address) {
-      setError("Please fill in all required profile fields.");
+      toastError("Please fill in all required profile fields.");
       return;
     }
     setLoading(true);
-    setError(null);
-    setProfileInfo(null);
     try {
       const body: Record<string, string | null> = {
         name,
@@ -1173,9 +1163,9 @@ function AdminContent() {
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.message || data?.error || "PROFILE_SAVE_FAILED");
       if (data.admin) applyAdminProfile(data.admin as AdminProfile);
-      setProfileInfo("Profile saved.");
+      toastSuccess("Profile saved.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "PROFILE_SAVE_FAILED");
+      toastError(err instanceof Error ? err.message : "PROFILE_SAVE_FAILED");
     } finally {
       setLoading(false);
     }
@@ -1184,20 +1174,19 @@ function AdminContent() {
   async function submitRegister(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setError(null);
     const emailErr = validateEmail(email);
-    if (emailErr) { setError(emailErr); setLoading(false); return; }
+    if (emailErr) { toastError(emailErr); setLoading(false); return; }
     const pwErr = validatePassword(password);
-    if (pwErr) { setError(pwErr); setLoading(false); return; }
+    if (pwErr) { toastError(pwErr); setLoading(false); return; }
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+      toastError("Passwords do not match.");
       setLoading(false);
       return;
     }
     const profileErr = validateRegisterProfile();
-    if (profileErr) { setError(profileErr); setLoading(false); return; }
+    if (profileErr) { toastError(profileErr); setLoading(false); return; }
     if (regLogoUploading) {
-      setError("Please wait for the logo upload to finish.");
+      toastError("Please wait for the logo upload to finish.");
       setLoading(false);
       return;
     }
@@ -1212,7 +1201,7 @@ function AdminContent() {
       setOtp("");
       setView("register-verify");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "REGISTER_FAILED");
+      toastError(err instanceof Error ? err.message : "REGISTER_FAILED");
     } finally {
       setLoading(false);
     }
@@ -1221,12 +1210,11 @@ function AdminContent() {
   async function submitRegisterVerify(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setError(null);
     const emailErr = validateEmail(email);
-    if (emailErr) { setError(emailErr); setLoading(false); return; }
+    if (emailErr) { toastError(emailErr); setLoading(false); return; }
     const code = otp.trim();
     if (!/^\d{6}$/.test(code)) {
-      setError("Enter the 6-digit OTP from your email.");
+      toastError("Enter the 6-digit OTP from your email.");
       setLoading(false);
       return;
     }
@@ -1247,7 +1235,7 @@ function AdminContent() {
       await loadEvents();
       redirectAfterLogin();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "VERIFY_FAILED");
+      toastError(err instanceof Error ? err.message : "VERIFY_FAILED");
     } finally {
       setLoading(false);
     }
@@ -1255,13 +1243,11 @@ function AdminContent() {
 
   async function resendRegisterOtp() {
     setLoading(true);
-    setError(null);
-    setInfo(null);
     const emailErr = validateEmail(email);
     const pwErr = validatePassword(password);
     const profileErr = validateRegisterProfile();
     if (emailErr || pwErr || profileErr) {
-      setError(emailErr || pwErr || profileErr || "Complete the registration form first.");
+      toastError(emailErr || pwErr || profileErr || "Complete the registration form first.");
       setLoading(false);
       return;
     }
@@ -1273,9 +1259,9 @@ function AdminContent() {
       });
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.message || data?.error || "RESEND_FAILED");
-      setInfo("A new OTP has been sent to your email.");
+      toastSuccess("A new OTP has been sent to your email.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "RESEND_FAILED");
+      toastError(err instanceof Error ? err.message : "RESEND_FAILED");
     } finally {
       setLoading(false);
     }
@@ -1284,11 +1270,10 @@ function AdminContent() {
   async function submitSignIn(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setError(null);
     const emailErr = validateEmail(email);
-    if (emailErr) { setError(emailErr); setLoading(false); return; }
+    if (emailErr) { toastError(emailErr); setLoading(false); return; }
     const pwErr = validatePassword(password);
-    if (pwErr) { setError(pwErr); setLoading(false); return; }
+    if (pwErr) { toastError(pwErr); setLoading(false); return; }
     try {
       const r = await fetch(`${apiBase}/admin/auth/sign-in`, {
         method: "POST",
@@ -1309,25 +1294,25 @@ function AdminContent() {
       await loadEvents();
       redirectAfterLogin();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "SIGN_IN_FAILED");
+      toastError(err instanceof Error ? err.message : "SIGN_IN_FAILED");
     } finally {
       setLoading(false);
     }
   }
 
   async function submitForgot(e: React.FormEvent) {
-    e.preventDefault(); setLoading(true); setError(null);
+    e.preventDefault(); setLoading(true);
     try {
       const r = await fetch(`${apiBase}/admin/auth/forgot-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim() }) });
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.message || data?.error || "FORGOT_FAILED");
       setView("reset");
-    } catch (err) { setError(err instanceof Error ? err.message : "FORGOT_FAILED"); }
+    } catch (err) { toastError(err instanceof Error ? err.message : "FORGOT_FAILED"); }
     finally { setLoading(false); }
   }
 
   async function submitReset(e: React.FormEvent) {
-    e.preventDefault(); setLoading(true); setError(null);
+    e.preventDefault(); setLoading(true);
     try {
       const r = await fetch(`${apiBase}/admin/auth/reset-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim(), otp: otp.trim(), newPassword }) });
       const data = await r.json().catch(() => null);
@@ -1335,7 +1320,7 @@ function AdminContent() {
       writeAdminSession(data.token, data.admin);
       if (data.admin) applyAdminProfile(data.admin as AdminProfile);
       setOtp(""); setNewPassword(""); setView("dashboard"); await loadEvents(); redirectAfterLogin();
-    } catch (err) { setError(err instanceof Error ? err.message : "RESET_FAILED"); }
+    } catch (err) { toastError(err instanceof Error ? err.message : "RESET_FAILED"); }
     finally { setLoading(false); }
   }
 
@@ -1363,7 +1348,6 @@ function AdminContent() {
     setCreateIsPrivate(ev.is_private === true || ev.is_private === 1);
     setCreateStartLocal(toDatetimeLocalValue(ev.start_time));
     setCreateEndLocal(toDatetimeLocalValue(ev.end_time));
-    setError(null);
     setEventFormModal("edit");
     if (selectedEventId !== ev.event_id) navigateDashboard("detail", ev.event_id);
   }
@@ -1371,23 +1355,21 @@ function AdminContent() {
   function cancelEditEvent() {
     setEventFormModal(null);
     resetEventForm();
-    setError(null);
   }
 
   function openCreateEvent() {
     resetEventForm();
-    setError(null);
     setEventFormModal("create");
   }
 
   async function uploadEventPhoto(file: File) {
     const token = readAdminToken(); if (!token) return;
-    setUploading(true); setError(null);
+    setUploading(true);
     try {
       const name = await uploadAwardsPhoto(file, apiBase, token);
       setEventBannerPreviewUrl(prev => { if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev); return resolveEventBannerUrl(apiOrigin, name); });
       setCreateImageName(name);
-    } catch (err) { setError(err instanceof Error ? err.message : "UPLOAD_FAILED"); }
+    } catch (err) { toastError(err instanceof Error ? err.message : "UPLOAD_FAILED"); }
     finally { setUploading(false); }
   }
 
@@ -1395,8 +1377,8 @@ function AdminContent() {
     e.preventDefault();
     const token = readAdminToken(); if (!token) return;
     const windowErr = votingWindowError(createStartLocal, createEndLocal);
-    if (windowErr) { setError(windowErr); return; }
-    setLoading(true); setError(null);
+    if (windowErr) { toastError(windowErr); return; }
+    setLoading(true);
     try {
       const isEdit = editingEventId != null;
       const votingExtras = createStartLocal && createEndLocal
@@ -1420,7 +1402,7 @@ function AdminContent() {
       await loadEvents();
       if (savedId) navigateDashboard("detail", savedId);
       else navigateDashboard("list");
-    } catch (err) { setError(err instanceof Error ? err.message : "SAVE_EVENT_FAILED"); }
+    } catch (err) { toastError(err instanceof Error ? err.message : "SAVE_EVENT_FAILED"); }
     finally { setLoading(false); }
   }
 
@@ -1459,7 +1441,6 @@ function AdminContent() {
     const title = (ev.title || "").trim() || "Untitled";
     if (!window.confirm(`Delete "${title}" and all its categories, nominees, and votes? This cannot be undone.`)) return;
     setLoading(true);
-    setError(null);
     try {
       const r = await fetch(`${apiBase}/admin/events/${ev.event_id}`, {
         method: "DELETE",
@@ -1473,9 +1454,9 @@ function AdminContent() {
       }
       if (editingEventId === ev.event_id) resetEventForm();
       await loadEvents();
-      setInfo(`Deleted "${title}".`);
+      toastSuccess(`Deleted "${title}".`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "DELETE_EVENT_FAILED");
+      toastError(err instanceof Error ? err.message : "DELETE_EVENT_FAILED");
     } finally {
       setLoading(false);
     }
@@ -1485,7 +1466,6 @@ function AdminContent() {
     const token = readAdminToken();
     if (!token) return;
     setIsLiveSaving(true);
-    setError(null);
     try {
       const r = await fetch(`${apiBase}/admin/events/${ev.event_id}`, {
         method: "PATCH",
@@ -1496,7 +1476,7 @@ function AdminContent() {
       if (!r.ok) throw new Error(data?.error || "UPDATE_EVENT_FAILED");
       patchEvent(ev.event_id, { is_live: next ? 1 : 0 });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "UPDATE_EVENT_FAILED");
+      toastError(err instanceof Error ? err.message : "UPDATE_EVENT_FAILED");
     } finally {
       setIsLiveSaving(false);
     }
@@ -1506,7 +1486,6 @@ function AdminContent() {
     const token = readAdminToken();
     if (!token) return;
     setDeclareResultSaving(true);
-    setError(null);
     try {
       const r = await fetch(`${apiBase}/admin/events/${ev.event_id}`, {
         method: "PATCH",
@@ -1517,7 +1496,7 @@ function AdminContent() {
       if (!r.ok) throw new Error(data?.error || "UPDATE_EVENT_FAILED");
       patchEvent(ev.event_id, { declare_result: next ? 1 : 0 });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "UPDATE_EVENT_FAILED");
+      toastError(err instanceof Error ? err.message : "UPDATE_EVENT_FAILED");
     } finally {
       setDeclareResultSaving(false);
     }
@@ -1605,7 +1584,6 @@ function AdminContent() {
         <div className="section-head" style={{ marginTop: 8 }}>
           <span className="section-title">My profile</span>
         </div>
-        {profileInfo ? <p className="hint" style={{ marginBottom: 12 }}>{profileInfo}</p> : null}
         {adminProfile ? (
           <div className="profileSummary" style={{ marginBottom: 20 }}>
             <div className="profileSummaryLabel">Signed in as</div>
@@ -2031,18 +2009,16 @@ function AdminContent() {
                   className="topbar-profile"
                   onClick={() => navigateDashboard("profile")}
                   title={`Signed in as ${adminProfile.name || adminProfile.email}`}
+                  aria-label={`My profile (${adminProfile.name || adminProfile.email})`}
                 >
                   <span className="topbar-profile-avatar" aria-hidden>
                     {(adminProfile.name || adminProfile.email).slice(0, 2).toUpperCase()}
                   </span>
-                  <span className="topbar-profile-name">{adminProfile.name || adminProfile.email}</span>
                 </button>
               ) : null}
               <button type="button" className="btn btn-ghost" onClick={logout}>Log out</button>
             </div>
           </div>
-
-          {error && <div className="error-box">{error}</div>}
 
           {dashboardBody}
 
@@ -2066,8 +2042,7 @@ function AdminContent() {
             </AdminModal>
           ) : null}
 
-          {!token && <p className="error-box" style={{ marginTop: 16 }}>Session missing — please log in again.</p>}
-        </div>
+          </div>
       </div>
     );
   }
@@ -2085,7 +2060,6 @@ function AdminContent() {
             </div>
             <div className="auth-title">Forgot password</div>
             <div className="auth-subtitle">Enter your email and we'll send a 6-digit OTP.</div>
-            {error && <div className="error-box">{error}</div>}
             <form onSubmit={submitForgot}>
               <div className="field">
                 <div className="label">Email</div>
@@ -2115,7 +2089,6 @@ function AdminContent() {
             </div>
             <div className="auth-title">Create account</div>
             <div className="auth-subtitle">Fill in your details. We will email a one-time code to verify your account.</div>
-            {error && <div className="error-box">{error}</div>}
             <form onSubmit={submitRegister}>
               <div className="field">
                 <div className="label">Your name *</div>
@@ -2242,7 +2215,7 @@ function AdminContent() {
               </button>
             </form>
             <div className="auth-footer" style={{ flexDirection: "column", gap: 10 }}>
-              <button type="button" className="link-btn" onClick={() => { setError(null); setView("auth"); }}>
+              <button type="button" className="link-btn" onClick={() => { setView("auth"); }}>
                 Already have an account? Sign in
               </button>
             </div>
@@ -2267,8 +2240,6 @@ function AdminContent() {
             <div className="auth-subtitle">
               Enter the 6-digit OTP sent to <strong>{email.trim() || "your email"}</strong>.
             </div>
-            {error && <div className="error-box">{error}</div>}
-            {info && <div className="info-box">{info}</div>}
             <form onSubmit={submitRegisterVerify}>
               <div className="field">
                 <div className="label">Email</div>
@@ -2302,7 +2273,7 @@ function AdminContent() {
               <button type="button" className="link-btn" disabled={loading} onClick={() => void resendRegisterOtp()}>
                 Resend OTP
               </button>
-              <button type="button" className="link-btn" onClick={() => { setError(null); setView("register"); }}>
+              <button type="button" className="link-btn" onClick={() => { setView("register"); }}>
                 ← Back to register
               </button>
             </div>
@@ -2325,7 +2296,6 @@ function AdminContent() {
             </div>
             <div className="auth-title">Reset password</div>
             <div className="auth-subtitle">Enter the OTP from your email and choose a new password.</div>
-            {error && <div className="error-box">{error}</div>}
             <form onSubmit={submitReset}>
               <div className="field">
                 <div className="label">Email</div>
@@ -2371,7 +2341,6 @@ function AdminContent() {
           </div>
           <div className="auth-title">Welcome back</div>
           <div className="auth-subtitle">Sign in to manage your events.</div>
-          {error && <div className="error-box">{error}</div>}
           <form onSubmit={submitSignIn}>
             <div className="field">
               <div className="label">Email</div>
@@ -2384,7 +2353,7 @@ function AdminContent() {
             <button type="submit" className="btn btn-full" disabled={loading}>{loading ? "Please wait…" : "Sign in"}</button>
           </form>
           <div className="auth-footer" style={{ flexDirection: "column", gap: 10 }}>
-            <button type="button" className="link-btn" onClick={() => { setError(null); setView("forgot"); }}>Forgot password?</button>
+            <button type="button" className="link-btn" onClick={() => { setView("forgot"); }}>Forgot password?</button>
             <span style={{ color: "var(--text-muted)" }}>
               Don&apos;t have an account?{" "}
               <button type="button" className="link-btn" onClick={openRegister}>Register</button>

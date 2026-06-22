@@ -7,6 +7,7 @@ import Box from "@mui/material/Box";
 import { useParams } from "next/navigation";
 import { SiteNav } from "../../_components/SiteNav";
 import { Breadcrumb } from "../../_components/Breadcrumb";
+import { useToast } from "../../_components/ToastProvider";
 import { CategoryCard, NomineeCard, NomineeCardGrid } from "../../_components/CategoryNomineeCards";
 import { getPublicApiBase, getUploadsOrigin } from "../../_lib/publicApiBase";
 import { resolveEventBannerUrl, resolveNomineePhotoUrl } from "../../_lib/resolveImageUrl";
@@ -87,6 +88,7 @@ function EventDetailContent() {
   const params = useParams();
   const apiBase = getPublicApiBase();
   const apiOrigin = getUploadsOrigin();
+  const { toastError } = useToast();
 
   const eventId = React.useMemo(() => {
     const raw = params?.eventId;
@@ -100,33 +102,36 @@ function EventDetailContent() {
   const [nominees, setNominees] = React.useState<NomineeRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [liveDataLoading, setLiveDataLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [liveDataError, setLiveDataError] = React.useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = React.useState(false);
+  const [liveDataFailed, setLiveDataFailed] = React.useState(false);
 
   React.useEffect(() => {
     if (!eventId) {
       setLoading(false);
-      setError("Invalid event link.");
+      setLoadFailed(true);
+      toastError("Invalid event link.");
       setEvent(null);
       return;
     }
     let cancelled = false;
     void (async () => {
       setLoading(true);
-      setError(null);
+      setLoadFailed(false);
       try {
         const r = await fetch(`${apiBase}/events/${eventId}`);
         const data = await r.json().catch(() => null);
         if (cancelled) return;
         if (!r.ok || !data?.ok || !data?.event) {
-          setError("This event could not be found.");
+          setLoadFailed(true);
+          toastError("This event could not be found.");
           setEvent(null);
           return;
         }
         setEvent(data.event as EventDetail);
       } catch {
         if (!cancelled) {
-          setError("Could not load event details. Check your connection.");
+          setLoadFailed(true);
+          toastError("Could not load event details. Check your connection.");
           setEvent(null);
         }
       } finally {
@@ -136,19 +141,19 @@ function EventDetailContent() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, eventId]);
+  }, [apiBase, eventId, toastError]);
 
   React.useEffect(() => {
     if (!eventId || !event) {
       setCategories([]);
       setNominees([]);
-      setLiveDataError(null);
+      setLiveDataFailed(false);
       return;
     }
     let cancelled = false;
     void (async () => {
       setLiveDataLoading(true);
-      setLiveDataError(null);
+      setLiveDataFailed(false);
       try {
         const [catsRes, nomsRes] = await Promise.all([
           fetch(`${apiBase}/categories?eventId=${eventId}`),
@@ -163,7 +168,9 @@ function EventDetailContent() {
         setNominees(Array.isArray(nomsData?.nominees) ? nomsData.nominees : []);
       } catch (e) {
         if (!cancelled) {
-          setLiveDataError(e instanceof Error ? e.message : "EVENT_DATA_FAILED");
+          const msg = e instanceof Error ? e.message : "EVENT_DATA_FAILED";
+          setLiveDataFailed(true);
+          toastError(`Could not load event data: ${msg}`);
           setCategories([]);
           setNominees([]);
         }
@@ -174,7 +181,7 @@ function EventDetailContent() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, event, eventId]);
+  }, [apiBase, event, eventId, toastError]);
 
   const title = (event?.title || "").trim() || "Untitled event";
   const rawDesc = (event?.description || "").trim();
@@ -232,9 +239,9 @@ function EventDetailContent() {
         <section className="hxSection hxEventDetailSection" aria-labelledby="event-detail-heading">
           {loading ? (
             <p className="hxMuted hxShimmer">Loading event…</p>
-          ) : error || !event ? (
+          ) : loadFailed || !event ? (
             <div className="hxEventDetailEmpty">
-              <p className="hxError">{error || "Event not found."}</p>
+              <p className="hxMuted">Event not found.</p>
               <Link href="/events" className="hxPillBtn">
                 Browse events
               </Link>
@@ -351,8 +358,8 @@ function EventDetailContent() {
               <div className="hxEventDetailContent">
                 {liveDataLoading ? (
                   <p className="hxMuted hxShimmer">Loading categories and nominees…</p>
-                ) : liveDataError ? (
-                  <p className="hxError">Could not load event data: {liveDataError}</p>
+                ) : liveDataFailed ? (
+                  <p className="hxMuted">Categories and nominees could not be loaded.</p>
                 ) : (
                   <>
                     {winnerCategories.length > 0 ? (
