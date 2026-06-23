@@ -204,22 +204,33 @@ app.post("/api/uploads/admin-logo", multerHandler(adminLogoUpload.single("photo"
   return res.json({ ok: true, filename: file.filename });
 });
 
-app.post("/api/uploads/presign-url", async (req, res) => {
-  const filename = String(req.body?.filename || "").trim();
-  const fltyp = String(req.body?.fltyp || "awards").trim() || "awards";
+async function handlePresignUrl(req: express.Request, res: express.Response) {
+  const filename = String(req.body?.filename || req.body?.name || req.body?.image || req.body?.logo || "").trim();
+  const fltyp = String(req.body?.fltyp || req.body?.fltype || "awards").trim() || "awards";
+  if (!fltyp) {
+    return res.status(400).json({ ok: false, success: false, message: "fltype or fltyp is required" });
+  }
   if (!filename) return res.status(400).json({ ok: false, success: false, error: "NO_FILENAME" });
   if (!isPresignConfigured()) {
     return res.status(503).json({ ok: false, success: false, error: "PRESIGN_NOT_CONFIGURED" });
   }
   try {
     const data = await getPresignedUploadUrl(filename, fltyp);
-    return res.json({ ok: true, success: true, data });
+    return res.json({
+      ok: true,
+      success: true,
+      data,
+      message: "Pre-signed URL generated successfully",
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "PRESIGN_FAILED";
     console.error("presign-url error", e);
     return res.status(502).json({ ok: false, success: false, error: "PRESIGN_FAILED", message });
   }
-});
+}
+
+app.post("/api/uploads/presign-url", handlePresignUrl);
+app.post("/api/v1/spa/get-presigned-url", handlePresignUrl);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });

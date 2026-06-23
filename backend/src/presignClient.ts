@@ -1,57 +1,137 @@
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+
 export type PresignedUploadData = {
   presignedUrl: string;
   filename: string;
+  path: string;
+  fullPath: string;
+  expiresIn: number;
 };
 
-function presignApiBase(): string {
-  return (process.env.PRESIGN_API_BASE || "https://superscore.in/api/v1").replace(/\/+$/, "");
+const CONTENT_TYPE_BY_EXT: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".bmp": "image/bmp",
+  ".ico": "image/x-icon",
+};
+
+function spacesPublicBase(): string {
+  return (process.env.DO_SPACES_PUBLIC_URL || "https://mscsuper.blr1.digitaloceanspaces.com").replace(
+    /\/+$/,
+    "",
+  );
 }
 
-function presignAuthHeader(): string | null {
-  const cid = process.env.PRESIGN_CID?.trim();
-  const aid = process.env.PRESIGN_AID?.trim();
-  const token = process.env.PRESIGN_TOKEN?.trim();
-  if (!cid || !aid || !token) return null;
-  return JSON.stringify([{ cid: Number(cid), aid: Number(aid), token }]);
+function presignExpiresIn(): number {
+  const n = Number(process.env.DO_SPACES_PRESIGN_EXPIRES || 3600);
+  return Number.isFinite(n) && n > 0 ? n : 3600;
+}
+
+function folderForFileType(fileType: string): string {
+  switch (fileType) {
+    case "bnrimg":
+      return "banner";
+    case "splogo":
+      return "sponsor";
+    case "teamlogo":
+      return "teams";
+    case "playerimg":
+    case "profileimg":
+      return "playersphoto";
+    case "receipt":
+      return "receipt";
+    case "centerlogo":
+    case "sstamp":
+    case "usstamp":
+    case "titleimg":
+    case "bg":
+      return "file";
+    case "alogo":
+      return "auction";
+    case "playercard":
+      return "playercard";
+    case "aforposter":
+      return "aforpost";
+    case "awards":
+      return "vdimg";
+    default:
+      return "file";
+  }
+}
+
+function extensionAndContentType(filename?: string): { ext: string; contentType: string } {
+  const safeName = String(filename || "").trim();
+  const lastDot = safeName.lastIndexOf(".");
+  if (lastDot > 0 && lastDot < safeName.length - 1) {
+    const ext = safeName.slice(lastDot).toLowerCase();
+    return { ext, contentType: CONTENT_TYPE_BY_EXT[ext] || "image/jpeg" };
+  }
+  return { ext: ".jpg", contentType: "image/jpeg" };
+}
+
+function s3Client(): S3Client {
+  const accessKeyId = process.env.DIGITAL_OCEAN_ACCESS_KEY_ID?.trim() || "";
+  const secretAccessKey = process.env.DIGITAL_OCEAN_SECRET_ACCESS_KEY?.trim() || "";
+  const region = process.env.DO_SPACES_REGION?.trim() || "blr1";
+  const endpoint = process.env.DO_SPACES_ENDPOINT?.trim() || `https://${region}.digitaloceanspaces.com`;
+
+  return new S3Client({
+    endpoint,
+    region,
+    credentials: { accessKeyId, secretAccessKey },
+    forcePathStyle: false,
+  });
 }
 
 export function isPresignConfigured(): boolean {
-  return presignAuthHeader() != null;
+  return Boolean(
+    process.env.DIGITAL_OCEAN_ACCESS_KEY_ID?.trim() && process.env.DIGITAL_OCEAN_SECRET_ACCESS_KEY?.trim(),
+  );
 }
 
-/** Request a DigitalOcean/S3 presigned PUT URL from the superscore upload service. */
+/** Generate a DigitalOcean Spaces presigned PUT URL for direct client upload. */
 export async function getPresignedUploadUrl(
   filename: string,
   fltyp = "awards",
 ): Promise<PresignedUploadData> {
-  const auth = presignAuthHeader();
-  if (!auth) {
+  if (!isPresignConfigured()) {
     throw new Error("PRESIGN_NOT_CONFIGURED");
   }
 
-  const safeName = String(filename || "").trim();
-  if (!safeName) {
+  const providedFilename = String(filename || "").trim();
+  if (!providedFilename) {
     throw new Error("NO_FILENAME");
   }
 
-  const formData = new FormData();
-  formData.append("filename", safeName);
-  formData.append("fltyp", fltyp);
+  const fileType = String(fltyp || "awards").trim() || "awards";
+  const folder = folderForFileType(fileType);
+  const { ext, contentType } = extensionAndContentType(providedFilename);
+  const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  const generatedFilename = `${uniqueSuffix}${ext}`;
+  const s3Key = `${folder}/${generatedFilename}`;
+  const bucket = process.env.DO_SPACES_BUCKET?.trim() || "mscsuper";
+  const expiresIn = presignExpiresIn();
+  const publicBase = spacesPublicBase();
 
-  const res = await fetch(`${presignApiBase()}/spa/get-presigned-url`, {
-    method: "POST",
-    headers: { authorization: auth },
-    body: formData,
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: s3Key,
+    ContentType: contentType,
+    ACL: "public-read",
   });
 
-  const payload = (await res.json().catch(() => null)) as
-    | { success?: boolean; data?: PresignedUploadData; message?: string }
-    | null;
+  const presignedUrl = await getSignedUrl(s3Client(), command, { expiresIn });
 
-  if (!res.ok || !payload?.success || !payload.data?.presignedUrl || !payload.data?.filename) {
-    const detail = payload?.message || `HTTP ${res.status}`;
-    throw new Error(`PRESIGN_FAILED:${detail}`);
-  }
-
-  return payload.data;
+  return {
+    presignedUrl,
+    filename: generatedFilename,
+    path: `${publicBase}/${folder}/`,
+    fullPath: `${publicBase}/${s3Key}`,
+    expiresIn,
+  };
 }
