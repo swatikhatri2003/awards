@@ -127,7 +127,7 @@ function WinnerStage({
   winners: YlfWinnerEntry[];
 }) {
   return (
-    <section aria-label="Winners">
+    <section className={styles.winnerSection} aria-label="Winners">
       <div className={styles.titleWrap}>
         <h1 className={styles.title}>Winners</h1>
         <hr className={styles.titleRule} />

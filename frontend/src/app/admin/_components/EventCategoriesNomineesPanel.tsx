@@ -9,6 +9,7 @@ import { Breadcrumb } from "../../_components/Breadcrumb";
 import { useToast } from "../../_components/ToastProvider";
 import { AdminModal } from "./AdminModal";
 import { AdminNomineeCard } from "./AdminNomineeCard";
+import { syncYlfPublicState } from "@/lib/ylfPublicState";
 import Box from "@mui/material/Box";
 
 type Category = {
@@ -80,8 +81,23 @@ export function EventCategoriesNomineesPanel(props: {
   onGoList?: () => void;
   onGoCategories?: () => void;
   onEventDeclareResultChange?: (next: boolean) => void;
+  eventIsLive?: boolean;
+  eventDeclareResult?: boolean;
 }) {
-  const { mode, eventId, eventTitle, apiBase, apiOrigin, token, onBack, onGoList, onGoCategories, onEventDeclareResultChange } = props;
+  const {
+    mode,
+    eventId,
+    eventTitle,
+    apiBase,
+    apiOrigin,
+    token,
+    onBack,
+    onGoList,
+    onGoCategories,
+    onEventDeclareResultChange,
+    eventIsLive = false,
+    eventDeclareResult = false,
+  } = props;
   const { toastError } = useToast();
 
   const [adminCategories, setAdminCategories] = React.useState<Category[]>([]);
@@ -101,6 +117,23 @@ export function EventCategoriesNomineesPanel(props: {
   const [adminPhotoUploading, setAdminPhotoUploading] = React.useState(false);
   const [showNomineeSavingId, setShowNomineeSavingId] = React.useState<number | null>(null);
   const [declareResultSavingId, setDeclareResultSavingId] = React.useState<number | null>(null);
+
+  const pushPublicSnapshot = React.useCallback(
+    (cats: Category[], noms: Nominee[]) => {
+      void syncYlfPublicState({
+        eventId,
+        apiBase,
+        adminToken: token,
+        event: {
+          is_live: eventIsLive ? 1 : 0,
+          declare_result: eventDeclareResult ? 1 : 0,
+        },
+        categories: cats,
+        nominees: noms,
+      });
+    },
+    [eventId, apiBase, token, eventIsLive, eventDeclareResult],
+  );
 
   const categoryById = React.useMemo(() => {
     const m = new Map<number, Category>();
@@ -124,14 +157,26 @@ export function EventCategoriesNomineesPanel(props: {
       const rawCats = Array.isArray(catsData?.categories) ? (catsData.categories as Category[]) : [];
       const hasEventCol = rawCats.some((c) => c?.event_id != null && Number.isFinite(Number(c.event_id)));
       const nextCats = hasEventCol ? rawCats.filter((c) => Number(c?.event_id) === eventId) : rawCats;
+      const nextNoms = Array.isArray(nomsData?.nominees) ? (nomsData.nominees as Nominee[]) : [];
       setAdminCategories(nextCats);
-      setAdminNominees(Array.isArray(nomsData?.nominees) ? (nomsData.nominees as Nominee[]) : []);
+      setAdminNominees(nextNoms);
+      void syncYlfPublicState({
+        eventId,
+        apiBase,
+        adminToken: token,
+        event: {
+          is_live: eventIsLive ? 1 : 0,
+          declare_result: eventDeclareResult ? 1 : 0,
+        },
+        categories: nextCats,
+        nominees: nextNoms,
+      });
     } catch (e) {
       toastError(e instanceof Error ? e.message : "ADMIN_LOAD_FAILED");
     } finally {
       setAdminLoading(false);
     }
-  }, [eventId, apiBase, token]);
+  }, [eventId, apiBase, token, eventIsLive, eventDeclareResult]);
 
   React.useEffect(() => {
     void loadAdminData();
@@ -325,11 +370,13 @@ export function EventCategoriesNomineesPanel(props: {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "UPDATE_CATEGORY_FAILED");
-      setAdminCategories((prev) =>
-        prev.map((cat) =>
+      setAdminCategories((prev) => {
+        const nextCats = prev.map((cat) =>
           cat.category_id === c.category_id ? { ...cat, show_nominee: next ? 1 : 0 } : cat,
-        ),
-      );
+        );
+        pushPublicSnapshot(nextCats, adminNominees);
+        return nextCats;
+      });
     } catch (e) {
       toastError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
     } finally {
@@ -348,15 +395,17 @@ export function EventCategoriesNomineesPanel(props: {
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "UPDATE_CATEGORY_FAILED");
       const updated = data?.category as Category | undefined;
-      setAdminCategories((prev) =>
-        prev.map((cat) =>
+      setAdminCategories((prev) => {
+        const nextCats = prev.map((cat) =>
           cat.category_id === c.category_id
             ? updated
               ? { ...cat, ...updated }
               : { ...cat, declare_result: next ? 1 : 0, winner_nominee_id: next ? cat.winner_nominee_id : null }
             : cat,
-        ),
-      );
+        );
+        pushPublicSnapshot(nextCats, adminNominees);
+        return nextCats;
+      });
       if (!next) onEventDeclareResultChange?.(false);
     } catch (e) {
       toastError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");

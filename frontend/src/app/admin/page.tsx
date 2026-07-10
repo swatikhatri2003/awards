@@ -3,12 +3,11 @@
 import React, { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { fullAppUrl, withBasePath } from "../_lib/basePath";
+import { signInAsAdmin, signOutAdmin } from "../_lib/accountSession";
 import {
   adminAuthHeader,
-  clearAdminSession,
   isAdminSessionValid,
   readAdminToken,
-  writeAdminSession,
 } from "../_lib/adminAuthSession";
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 import { resolveAdminLogoUrl, resolveEventBannerUrl } from "../_lib/resolveImageUrl";
@@ -18,6 +17,7 @@ import { AllowedMobilesPanel } from "./_components/AllowedMobilesPanel";
 import { AdminModal } from "./_components/AdminModal";
 import { Breadcrumb } from "../_components/Breadcrumb";
 import { useToast } from "../_components/ToastProvider";
+import { syncYlfPublicState } from "@/lib/ylfPublicState";
 import switchStyles from "../actions/led-kiosk.module.css";
 
 type ApiEvent = {
@@ -31,6 +31,7 @@ type ApiEvent = {
   end_time?: string | null;
   is_live?: number | boolean | null;
   declare_result?: number | boolean | null;
+  live_voting?: number | boolean | null;
 };
 
 function toDatetimeLocalValue(iso: string | null | undefined): string {
@@ -862,6 +863,7 @@ function AdminContent() {
   const [createImageName, setCreateImageName] = React.useState("");
   const [eventBannerPreviewUrl, setEventBannerPreviewUrl] = React.useState<string | null>(null);
   const [createIsPrivate, setCreateIsPrivate] = React.useState(false);
+  const [createLiveVoting, setCreateLiveVoting] = React.useState(false);
   const [createStartLocal, setCreateStartLocal] = React.useState("");
   const [createEndLocal, setCreateEndLocal] = React.useState("");
   const [uploading, setUploading] = React.useState(false);
@@ -893,7 +895,7 @@ function AdminContent() {
       const r = await fetch(`${apiBase}/admin/events`, { headers: { ...adminAuthHeader(token) } });
       const data = await r.json().catch(() => null);
       if (!r.ok) {
-        if (r.status === 401) clearAdminSession();
+        if (r.status === 401) signOutAdmin();
         return;
       }
       setEvents(Array.isArray(data?.events) ? data.events : []);
@@ -920,7 +922,7 @@ function AdminContent() {
       const r = await fetch(`${apiBase}/admin/me`, { headers: { ...adminAuthHeader(token) } });
       const data = await r.json().catch(() => null);
       if (!r.ok) {
-        if (r.status === 401) clearAdminSession();
+        if (r.status === 401) signOutAdmin();
         return null;
       }
       const profile = data?.admin as AdminProfile | undefined;
@@ -1021,6 +1023,7 @@ function AdminContent() {
       return img ? resolveEventBannerUrl(apiOrigin, img) : null;
     });
     setCreateIsPrivate(ev.is_private === true || ev.is_private === 1);
+    setCreateLiveVoting(ev.live_voting === true || ev.live_voting === 1);
     setCreateStartLocal(toDatetimeLocalValue(ev.start_time));
     setCreateEndLocal(toDatetimeLocalValue(ev.end_time));
   }, [view, eventFormModal, selectedEventId, events, editingEventId, apiOrigin]);
@@ -1226,7 +1229,7 @@ function AdminContent() {
       });
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.message || data?.error || "VERIFY_FAILED");
-      writeAdminSession(data.token, data.admin);
+      signInAsAdmin(data.token, data.admin);
       if (data.admin) applyAdminProfile(data.admin as AdminProfile);
       setPassword("");
       setConfirmPassword("");
@@ -1287,7 +1290,7 @@ function AdminContent() {
         }
         throw new Error(data?.message || data?.error || "SIGN_IN_FAILED");
       }
-      writeAdminSession(data.token, data.admin);
+      signInAsAdmin(data.token, data.admin);
       if (data.admin) applyAdminProfile(data.admin as AdminProfile);
       setPassword("");
       setView("dashboard");
@@ -1317,7 +1320,7 @@ function AdminContent() {
       const r = await fetch(`${apiBase}/admin/auth/reset-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim(), otp: otp.trim(), newPassword }) });
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.message || data?.error || "RESET_FAILED");
-      writeAdminSession(data.token, data.admin);
+      signInAsAdmin(data.token, data.admin);
       if (data.admin) applyAdminProfile(data.admin as AdminProfile);
       setOtp(""); setNewPassword(""); setView("dashboard"); await loadEvents(); redirectAfterLogin();
     } catch (err) { toastError(err instanceof Error ? err.message : "RESET_FAILED"); }
@@ -1331,6 +1334,7 @@ function AdminContent() {
     setCreateImageName("");
     revokeEventBannerPreview();
     setCreateIsPrivate(false);
+    setCreateLiveVoting(false);
     setCreateStartLocal("");
     setCreateEndLocal("");
   }
@@ -1346,6 +1350,7 @@ function AdminContent() {
       return img ? resolveEventBannerUrl(apiOrigin, img) : null;
     });
     setCreateIsPrivate(ev.is_private === true || ev.is_private === 1);
+    setCreateLiveVoting(ev.live_voting === true || ev.live_voting === 1);
     setCreateStartLocal(toDatetimeLocalValue(ev.start_time));
     setCreateEndLocal(toDatetimeLocalValue(ev.end_time));
     setEventFormModal("edit");
@@ -1376,17 +1381,21 @@ function AdminContent() {
   async function submitCreateEvent(e: React.FormEvent) {
     e.preventDefault();
     const token = readAdminToken(); if (!token) return;
-    const windowErr = votingWindowError(createStartLocal, createEndLocal);
-    if (windowErr) { toastError(windowErr); return; }
+    if (!createLiveVoting) {
+      const windowErr = votingWindowError(createStartLocal, createEndLocal);
+      if (windowErr) { toastError(windowErr); return; }
+    }
     setLoading(true);
     try {
       const isEdit = editingEventId != null;
-      const votingExtras = createStartLocal && createEndLocal
-        ? { start_time: new Date(createStartLocal).toISOString(), end_time: new Date(createEndLocal).toISOString() }
-        : isEdit ? { start_time: "", end_time: "" } : {};
+      const votingExtras = createLiveVoting
+        ? (isEdit ? { start_time: "", end_time: "" } : {})
+        : createStartLocal && createEndLocal
+          ? { start_time: new Date(createStartLocal).toISOString(), end_time: new Date(createEndLocal).toISOString() }
+          : isEdit ? { start_time: "", end_time: "" } : {};
       const body = isEdit
-        ? { title: createTitle.trim(), description: createDescription.trim() || null, image: createImageName.trim() || null, is_private: createIsPrivate ? 1 : 0, ...votingExtras }
-        : { title: createTitle.trim(), description: createDescription.trim() || undefined, image: createImageName.trim() || undefined, is_private: createIsPrivate ? 1 : 0, ...votingExtras };
+        ? { title: createTitle.trim(), description: createDescription.trim() || null, image: createImageName.trim() || null, is_private: createIsPrivate ? 1 : 0, live_voting: createLiveVoting ? 1 : 0, ...votingExtras }
+        : { title: createTitle.trim(), description: createDescription.trim() || undefined, image: createImageName.trim() || undefined, is_private: createIsPrivate ? 1 : 0, live_voting: createLiveVoting ? 1 : 0, ...votingExtras };
       const r = await fetch(isEdit ? `${apiBase}/admin/events/${editingEventId}` : `${apiBase}/admin/events`, {
         method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json", ...adminAuthHeader(token) },
@@ -1407,7 +1416,7 @@ function AdminContent() {
   }
 
   function logout() {
-    clearAdminSession();
+    signOutAdmin();
     setAdminProfile(null);
     setView("auth");
     setEvents([]);
@@ -1475,6 +1484,12 @@ function AdminContent() {
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.error || "UPDATE_EVENT_FAILED");
       patchEvent(ev.event_id, { is_live: next ? 1 : 0 });
+      void syncYlfPublicState({
+        eventId: ev.event_id,
+        apiBase,
+        adminToken: token,
+        event: { is_live: next ? 1 : 0, declare_result: ev.declare_result ?? null },
+      });
     } catch (err) {
       toastError(err instanceof Error ? err.message : "UPDATE_EVENT_FAILED");
     } finally {
@@ -1495,6 +1510,12 @@ function AdminContent() {
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.error || "UPDATE_EVENT_FAILED");
       patchEvent(ev.event_id, { declare_result: next ? 1 : 0 });
+      void syncYlfPublicState({
+        eventId: ev.event_id,
+        apiBase,
+        adminToken: token,
+        event: { is_live: ev.is_live ?? null, declare_result: next ? 1 : 0 },
+      });
     } catch (err) {
       toastError(err instanceof Error ? err.message : "UPDATE_EVENT_FAILED");
     } finally {
@@ -1552,9 +1573,10 @@ function AdminContent() {
             ) : null}
           </div>
 
+          {!createLiveVoting ? (
           <fieldset className="fieldset">
-            <legend className="fieldset-legend">Voting window</legend>
-            <p className="fieldset-hint">Set both to restrict when votes count, or leave empty for open voting. End must be after start.</p>
+            <legend className="fieldset-legend">Voting window (pre-voting)</legend>
+            <p className="fieldset-hint">Set both start and end times. When the window opens, the event goes live automatically.</p>
             <div className="grid2">
               <div className="field" style={{ margin: 0 }}>
                 <div className="label">Start</div>
@@ -1565,6 +1587,32 @@ function AdminContent() {
                 <input className="input" type="datetime-local" value={createEndLocal} min={createStartLocal || undefined} onChange={e => setCreateEndLocal(e.target.value)} />
               </div>
             </div>
+          </fieldset>
+          ) : null}
+
+          <fieldset className="fieldset">
+            <legend className="fieldset-legend">Voting mode</legend>
+            <p className="fieldset-hint">
+              Pre-voting: voters browse categories during the scheduled window. Live voting: you control each category and timer from LED controls — no scheduled window.
+            </p>
+            <label className="toggle-field">
+              <input
+                type="checkbox"
+                className="switch"
+                role="switch"
+                checked={createLiveVoting}
+                onChange={e => {
+                  const next = e.target.checked;
+                  setCreateLiveVoting(next);
+                  if (next) {
+                    setCreateStartLocal("");
+                    setCreateEndLocal("");
+                  }
+                }}
+                aria-checked={createLiveVoting}
+              />
+              <span className="toggle-label">Live voting</span>
+            </label>
           </fieldset>
 
         </form>
@@ -1737,6 +1785,7 @@ function AdminContent() {
       const imgSrc = resolveEventBannerUrl(apiOrigin, ev.image);
       const isPrivate = ev.is_private === true || ev.is_private === 1;
       const isLive = ev.is_live === true || ev.is_live === 1;
+      const isLiveVoting = ev.live_voting === true || ev.live_voting === 1;
       const eventDeclaresAll = ev.declare_result === true || ev.declare_result === 1;
       const status = votingStatus(ev);
       const startLabel = formatWhen(ev.start_time);
@@ -1769,11 +1818,16 @@ function AdminContent() {
               <span className={`event-badge ${isLive ? "badge-public" : "badge-vote-ended"}`}>
                 {isLive ? "Live" : "Not live"}
               </span>
-              <span className={`event-badge ${voteBadgeClass}`}>{voteLabel}</span>
+              <span className={`event-badge ${isLiveVoting ? "badge-vote-open" : "badge-vote-always"}`}>
+                {isLiveVoting ? "Live voting" : "Pre-voting"}
+              </span>
+              {!isLiveVoting ? <span className={`event-badge ${voteBadgeClass}`}>{voteLabel}</span> : null}
             </div>
             <h1 className="event-detail-title">{title}</h1>
             {desc ? <p className="event-desc">{desc}</p> : null}
-            {hasWindow ? (
+            {isLiveVoting ? (
+              <p className="event-detail-note">Admin-controlled live voting — use LED controls to pick a category and start the timer. No scheduled voting window.</p>
+            ) : hasWindow ? (
               <dl className="event-detail-meta">
                 <div>
                   <dt>Voting starts</dt>
@@ -1785,7 +1839,7 @@ function AdminContent() {
                 </div>
               </dl>
             ) : (
-              <p className="event-detail-note">Voting window not set — votes count anytime.</p>
+              <p className="event-detail-note">Set a voting window when editing this event for scheduled pre-voting.</p>
             )}
             {isPrivate ? (
               <p className="event-detail-note">Invite-only event. Share the register link below with attendees.</p>
@@ -1939,6 +1993,8 @@ function AdminContent() {
           onGoList={() => navigateDashboard("list")}
           onGoCategories={() => navigateDashboard("categories", selectedEventId)}
           onEventDeclareResultChange={(next) => patchEvent(selectedEventId, { declare_result: next ? 1 : 0 })}
+          eventIsLive={manageEvent.is_live === true || manageEvent.is_live === 1}
+          eventDeclareResult={manageEvent.declare_result === true || manageEvent.declare_result === 1}
         />
       ) : (
         <div className="panel">

@@ -1597,10 +1597,9 @@ input[type="file"].input {
 
 .hxEventsPageHeroRow {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px 24px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .hxEventsPageTitle {
@@ -1609,16 +1608,14 @@ input[type="file"].input {
 
 .hxEventsPageLead {
   margin: 0;
-  flex: 1 1 280px;
-  max-width: 42ch;
+  max-width: 48ch;
 }
 
 .hxSectionIntroRow {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px 24px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .hxSectionIntroRow .hxH2 {
@@ -1627,8 +1624,7 @@ input[type="file"].input {
 
 .hxSectionIntroRow .hxSub {
   margin: 0;
-  flex: 1 1 260px;
-  max-width: 44ch;
+  max-width: 52ch;
 }
 
 .hxMain {
@@ -1793,9 +1789,26 @@ input[type="file"].input {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 22px;
   align-items: stretch;
+}
+
+.hxEventRiver--preview {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 960px) {
+  .hxEventRiver--preview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 580px) {
+  .hxEventRiver,
+  .hxEventRiver--preview {
+    grid-template-columns: 1fr;
+  }
 }
 
 .hxEventRiverItem {
@@ -1843,6 +1856,15 @@ input[type="file"].input {
   flex-shrink: 0;
   background: linear-gradient(145deg, #e0e7ff, #dbeafe);
   overflow: hidden;
+}
+
+.hxEventLiveTag--overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  margin-top: 0;
+  z-index: 1;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
 }
 
 .hxEventImg {
@@ -2475,9 +2497,27 @@ input[type="file"].input {
 }
 
 .hxEventWinnersGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+@media (min-width: 560px) {
+  .hxEventWinnersGrid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 160px));
+  }
+}
+
+.hxEventWinnerCelebrateCard {
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  max-width: 160px;
 }
 
 .hxEventWinnerCard {
@@ -2494,6 +2534,44 @@ input[type="file"].input {
   text-transform: uppercase;
   color: var(--muted);
   margin-bottom: 8px;
+}
+
+.hxEventWinnerCelebrateCat {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 8px 10px 4px;
+  line-height: 1.3;
+}
+
+.hxEventWinnerCelebratePhotoWrap {
+  position: relative;
+  width: 100%;
+  height: 96px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+}
+
+.hxEventWinnerCelebratePhoto {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+.hxEventWinnerCelebrateName {
+  padding: 8px 10px 10px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  line-height: 1.25;
 }
 
 .hxEventWinnerBody {

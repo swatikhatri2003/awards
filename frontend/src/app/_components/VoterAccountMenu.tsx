@@ -2,46 +2,51 @@
 
 import React from "react";
 import Link from "next/link";
-import { readCurrentUser, type CurrentUser } from "../_lib/userSession";
-
-function initialsFor(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-  return name.slice(0, 2).toUpperCase();
-}
+import {
+  ACCOUNT_SESSION_CHANGE,
+  accountSessionStorageKeys,
+  initialsForAccount,
+  resolveHeaderAccount,
+} from "../_lib/accountSession";
 
 export function VoterAccountMenu(props: { compact?: boolean; onNavigate?: () => void }) {
-  const [user, setUser] = React.useState<CurrentUser | null>(null);
+  const [label, setLabel] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    const refresh = () => setUser(readCurrentUser());
+    const refresh = () => {
+      const account = resolveHeaderAccount();
+      setLabel(account?.role === "voter" ? account.name : null);
+    };
     refresh();
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "ylf_awards_current_user_v1" || e.key === null) refresh();
+      if (e.key === null || accountSessionStorageKeys().includes(e.key)) refresh();
     };
     const onFocus = () => refresh();
+    const onSessionChange = () => refresh();
     window.addEventListener("storage", onStorage);
     window.addEventListener("focus", onFocus);
+    window.addEventListener(ACCOUNT_SESSION_CHANGE, onSessionChange);
     return () => {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener(ACCOUNT_SESSION_CHANGE, onSessionChange);
     };
   }, []);
 
-  if (!user) return null;
+  if (!label) return null;
 
   return (
     <Link
       href="/profile"
       className={["accountBadge", props.compact ? "accountBadge--compact" : ""].filter(Boolean).join(" ")}
-      title={`Signed in as ${user.name}`}
-      aria-label={`My profile (${user.name})`}
+      title={`Signed in as ${label}`}
+      aria-label={`My profile (${label})`}
       onClick={props.onNavigate}
     >
       <span className="accountBadgeAvatar" aria-hidden>
-        {initialsFor(user.name)}
+        {initialsForAccount(label)}
       </span>
-      {props.compact ? null : <span className="accountBadgeName">{user.name}</span>}
+      {props.compact ? null : <span className="accountBadgeName">{label}</span>}
     </Link>
   );
 }

@@ -2,8 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { AdminAccountMenu } from "./AdminAccountMenu";
-import { VoterAccountMenu } from "./VoterAccountMenu";
+import { HeaderAccountMenu } from "./HeaderAccountMenu";
 
 const links = [
   { href: "/#why", label: "Why us" },
@@ -45,8 +44,7 @@ export function SiteNav() {
             ))}
           </ul>
           <div className="hxNavCta">
-            <VoterAccountMenu compact onNavigate={() => setOpen(false)} />
-            <AdminAccountMenu compact onNavigate={() => setOpen(false)} />
+            <HeaderAccountMenu compact onNavigate={() => setOpen(false)} />
             <Link className="hxGhost" href="/admin" target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
               Admin
             </Link>

@@ -53,42 +53,86 @@ export function NomineeCard(props: NomineeCardProps) {
   );
 }
 
-type CategoryCardProps = {
+type CategoryGroupProps = {
   name: string;
   nomineeCount?: number;
   meta?: string;
   children: React.ReactNode;
 };
 
-export function CategoryCard(props: CategoryCardProps) {
+function categoryMetaLabel(meta: string | undefined, nomineeCount: number | undefined): string | null {
+  if (meta) return meta;
+  if (typeof nomineeCount === "number") {
+    return `${nomineeCount} ${nomineeCount === 1 ? "nominee" : "nominees"}`;
+  }
+  return null;
+}
+
+function CategoryGroupHeader(props: Pick<CategoryGroupProps, "name" | "nomineeCount" | "meta">) {
+  const metaLabel = categoryMetaLabel(props.meta, props.nomineeCount);
+
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "baseline",
+        justifyContent: "space-between",
+        gap: 1.5,
+        mb: 2,
+      }}
+    >
+      <Typography variant="h6" component="h3" sx={{ fontWeight: 700 }}>
+        {props.name}
+      </Typography>
+      {metaLabel ? (
+        <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600 }}>
+          {metaLabel}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+}
+
+export function CategoryGroupsPanel(props: { children: React.ReactNode }) {
+  return (
+    <Card variant="outlined" sx={{ bgcolor: "background.paper" }}>
+      <CardContent
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 2.5,
+          "& > section + section": {
+            pt: 2.5,
+            borderTop: "1px solid",
+            borderColor: "divider",
+          },
+        }}
+      >
+        {props.children}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function CategorySection(props: CategoryGroupProps) {
   const { name, nomineeCount, meta, children } = props;
-  const metaLabel =
-    meta ??
-    (typeof nomineeCount === "number"
-      ? `${nomineeCount} ${nomineeCount === 1 ? "nominee" : "nominees"}`
-      : null);
+
+  return (
+    <Box component="section">
+      <CategoryGroupHeader name={name} nomineeCount={nomineeCount} meta={meta} />
+      {children}
+    </Box>
+  );
+}
+
+/** @deprecated Prefer CategoryGroupsPanel + CategorySection for grouped layouts */
+export function CategoryCard(props: CategoryGroupProps) {
+  const { name, nomineeCount, meta, children } = props;
 
   return (
     <Card variant="outlined" sx={{ bgcolor: "background.paper" }}>
       <CardContent>
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "baseline",
-            justifyContent: "space-between",
-            gap: 1.5,
-            mb: 2,
-          }}
-        >
-          <Typography variant="h6" component="h3" sx={{ fontWeight: 700 }}>
-            {name}
-          </Typography>
-          {metaLabel ? (
-            <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600 }}>
-              {metaLabel}
-            </Typography>
-          ) : null}
-        </Box>
+        <CategoryGroupHeader name={name} nomineeCount={nomineeCount} meta={meta} />
         {children}
       </CardContent>
     </Card>

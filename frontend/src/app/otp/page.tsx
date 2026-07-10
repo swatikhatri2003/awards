@@ -6,7 +6,7 @@ import { Field, Shell } from "../_components/Shell";
 import { useToast } from "../_components/ToastProvider";
 import { clearPendingRegistration, readPendingRegistration } from "../_lib/authSession";
 import { getPublicApiBase } from "../_lib/publicApiBase";
-import { writeCurrentUser } from "../_lib/userSession";
+import { signInAsVoter } from "../_lib/accountSession";
 
 function normalizeMobile(v: string) {
   return v.replace(/[^\d]/g, "");
@@ -64,7 +64,7 @@ export default function OtpPage() {
       const regEventId = pending.eventId;
       clearPendingRegistration();
       if (data?.person?.email && data?.person?.mobile) {
-        writeCurrentUser({
+        signInAsVoter({
           ...data.person,
           ...(typeof regEventId === "number" && regEventId > 0 ? { eventId: regEventId } : {}),
         });

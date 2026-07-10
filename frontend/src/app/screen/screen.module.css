@@ -440,16 +440,24 @@
 
 .winnerGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: clamp(14px, 1.8vw, 28px);
-  max-width: 1500px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 340px));
+  justify-content: center;
+  gap: clamp(16px, 2vw, 28px);
+  max-width: 1400px;
   margin: 0 auto;
   padding-bottom: clamp(20px, 4vh, 60px);
+}
+
+/* Single winner: keep card compact and centered on LED */
+.winnerGrid:has(> :only-child) {
+  grid-template-columns: minmax(0, min(440px, 86vw));
 }
 
 .winnerCard {
   display: flex;
   flex-direction: column;
+  width: 100%;
+  margin: 0 auto;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
   border: 1px solid rgba(214, 180, 106, 0.22);
   border-radius: 18px;
@@ -463,12 +471,14 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.62);
-  padding: 14px 16px 8px;
+  padding: 12px 14px 6px;
 }
 
 .winnerPhotoWrap {
   width: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 1 / 1;
+  max-height: min(34vh, 340px);
+  margin: 0 auto;
   background: rgba(0, 0, 0, 0.35);
   overflow: hidden;
   border-top: 1px solid rgba(214, 180, 106, 0.18);
@@ -478,14 +488,26 @@
 .winnerPhoto {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
   display: block;
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .winnerName {
-  padding: 14px 16px 18px;
-  font-size: clamp(18px, 2vw, 26px);
+  padding: 12px 14px 16px;
+  font-size: clamp(16px, 1.6vw, 22px);
   font-weight: 700;
   text-align: center;
   color: rgba(255, 255, 255, 0.96);
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.winnerSection .title {
+  font-size: clamp(32px, 4.8vw, 72px);
+}
+
+.winnerSection .titleWrap {
+  margin-bottom: clamp(12px, 2vh, 24px);
 }

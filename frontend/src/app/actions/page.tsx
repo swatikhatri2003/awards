@@ -4,6 +4,7 @@ import React, { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import styles from "./led-kiosk.module.css";
 import { setYlfCategory, setYlfGraph, setYlfPage, setYlfTimer, setYlfWinners, type YlfWinnerEntry } from "@/lib/firebase";
+import { syncYlfPublicState } from "@/lib/ylfPublicState";
 import { adminAuthHeader, readAdminToken } from "../_lib/adminAuthSession";
 import { withBasePath } from "../_lib/basePath";
 import { resolveEventBannerUrl, resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
@@ -351,14 +352,23 @@ function LedDashboard({
           const remaining = Math.max(0, t.remainingSec - 1);
           if (remaining !== t.remainingSec) {
             changed = true;
-            next[key] = { ...t, remainingSec: remaining, running: remaining > 0 };
+            const stillRunning = remaining > 0;
+            next[key] = { ...t, remainingSec: remaining, running: stillRunning };
+            if (!stillRunning) {
+              void setYlfTimer(eventId, {
+                categoryId: key,
+                running: false,
+                durationSec: t.durationSec,
+                endsAtMs: 0,
+              });
+            }
           }
         }
         return changed ? next : prev;
       });
     }, 1000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [eventId]);
 
   function setTimer(categoryId: number) {
     const raw = (timerInputSec[categoryId] || "").trim();
@@ -448,6 +458,23 @@ function LedDashboard({
     [eventId, nomineesForFirebase],
   );
 
+  const pushPublicSnapshot = React.useCallback(
+    (cats: Category[] = categories, noms: Nominee[] = Object.values(nomineesByCategory).flat()) => {
+      void syncYlfPublicState({
+        eventId,
+        apiBase,
+        adminToken: token,
+        event: {
+          is_live: eventIsLive ? 1 : 0,
+          declare_result: eventDeclareResult ? 1 : 0,
+        },
+        categories: cats,
+        nominees: noms,
+      });
+    },
+    [eventId, apiBase, token, eventIsLive, eventDeclareResult, categories, nomineesByCategory],
+  );
+
   const [showNomineeSaving, setShowNomineeSaving] = React.useState(false);
   const [declareResultSaving, setDeclareResultSaving] = React.useState(false);
   const [isLiveSaving, setIsLiveSaving] = React.useState(false);
@@ -463,6 +490,7 @@ function LedDashboard({
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "UPDATE_EVENT_FAILED");
       setEventIsLive(next);
+      void pushPublicSnapshot(categories, Object.values(nomineesByCategory).flat());
     } catch (e) {
       toastError(e instanceof Error ? e.message : "UPDATE_EVENT_FAILED");
     } finally {
@@ -500,6 +528,8 @@ function LedDashboard({
           winner_nominee_id: next ? c.winner_nominee_id : null,
         }));
       setCategories(nextCategories);
+
+      pushPublicSnapshot(nextCategories, Object.values(nomineesByCategory).flat());
 
       if (screen === "WINNER") {
         pushWinnersToScreen(nextCategories);
@@ -539,6 +569,8 @@ function LedDashboard({
       setCategories(nextCategories);
       if (!next) setEventDeclareResult(false);
 
+      pushPublicSnapshot(nextCategories, Object.values(nomineesByCategory).flat());
+
       if (screen === "WINNER") {
         pushWinnersToScreen(nextCategories);
       }
@@ -575,6 +607,12 @@ function LedDashboard({
         const nominees = nomineesByCategory[c.category_id] || [];
         pushCategoryToScreen({ ...c, show_nominee: next ? 1 : 0 }, nominees);
       }
+      pushPublicSnapshot(
+        categories.map((cat) =>
+          cat.category_id === c.category_id ? { ...cat, show_nominee: next ? 1 : 0 } : cat,
+        ),
+        Object.values(nomineesByCategory).flat(),
+      );
     } catch (e) {
       toastError(e instanceof Error ? e.message : "UPDATE_CATEGORY_FAILED");
     } finally {

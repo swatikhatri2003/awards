@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Field, Shell } from "../_components/Shell";
 import { VoterAccountMenu } from "../_components/VoterAccountMenu";
+import { signOutVoter } from "../_lib/accountSession";
 import {
-  clearCurrentUser,
   readCurrentUser,
   readUid,
   writeCurrentUser,
@@ -125,7 +125,7 @@ function ProfileContent() {
   }
 
   function logout() {
-    clearCurrentUser();
+    signOutVoter();
     router.push("/register");
   }
 

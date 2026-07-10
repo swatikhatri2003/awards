@@ -131,7 +131,7 @@ export function HomeExperience(props: {
             </p>
           ) : (
             <>
-              <PublicEventsList events={previewEvents} apiOrigin={apiOrigin} />
+              <PublicEventsList events={previewEvents} apiOrigin={apiOrigin} preview />
               {hasMoreEvents ? (
                 <div className="hxViewAllWrap">
                   <Link href="/events" className="hxViewAllBtn">

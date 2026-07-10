@@ -3,14 +3,15 @@
 import React, { Suspense } from "react";
 import Link from "next/link";
 import Typography from "@mui/material/Typography";
-import Box from "@mui/material/Box";
 import { useParams } from "next/navigation";
 import { SiteNav } from "../../_components/SiteNav";
 import { Breadcrumb } from "../../_components/Breadcrumb";
 import { useToast } from "../../_components/ToastProvider";
-import { CategoryCard, NomineeCard, NomineeCardGrid } from "../../_components/CategoryNomineeCards";
+import { CategoryGroupsPanel, CategorySection, NomineeCard, NomineeCardGrid } from "../../_components/CategoryNomineeCards";
 import { getPublicApiBase, getUploadsOrigin } from "../../_lib/publicApiBase";
 import { resolveEventBannerUrl, resolveNomineePhotoUrl } from "../../_lib/resolveImageUrl";
+import { subscribeYlfPublic } from "@/lib/firebase";
+import { applyYlfPublicPatch } from "@/lib/ylfPublicState";
 
 type EventDetail = {
   event_id: number;
@@ -78,6 +79,10 @@ function categoryDeclaresResult(c: CategoryRow): boolean {
   return c.declare_result === true || c.declare_result === 1;
 }
 
+function categoryShowsNominees(c: CategoryRow): boolean {
+  return c.show_nominee === true || c.show_nominee === 1;
+}
+
 function categoryHasWinner(c: CategoryRow): boolean {
   if (!categoryDeclaresResult(c)) return false;
   const wid = c.winner_nominee_id;
@@ -104,6 +109,13 @@ function EventDetailContent() {
   const [liveDataLoading, setLiveDataLoading] = React.useState(false);
   const [loadFailed, setLoadFailed] = React.useState(false);
   const [liveDataFailed, setLiveDataFailed] = React.useState(false);
+  const lastPublicUpdatedAt = React.useRef(0);
+  const eventRef = React.useRef(event);
+  const categoriesRef = React.useRef(categories);
+  const nomineesRef = React.useRef(nominees);
+  eventRef.current = event;
+  categoriesRef.current = categories;
+  nomineesRef.current = nominees;
 
   React.useEffect(() => {
     if (!eventId) {
@@ -166,6 +178,7 @@ function EventDetailContent() {
         if (!nomsRes.ok) throw new Error(nomsData?.error || "NOMINEES_FAILED");
         setCategories(Array.isArray(catsData?.categories) ? catsData.categories : []);
         setNominees(Array.isArray(nomsData?.nominees) ? nomsData.nominees : []);
+        lastPublicUpdatedAt.current = Date.now();
       } catch (e) {
         if (!cancelled) {
           const msg = e instanceof Error ? e.message : "EVENT_DATA_FAILED";
@@ -182,6 +195,23 @@ function EventDetailContent() {
       cancelled = true;
     };
   }, [apiBase, event, eventId, toastError]);
+
+  React.useEffect(() => {
+    if (!eventId || !event) return;
+    return subscribeYlfPublic(eventId, (publicState) => {
+      if (!publicState?.updatedAt || publicState.updatedAt <= lastPublicUpdatedAt.current) return;
+      lastPublicUpdatedAt.current = publicState.updatedAt;
+      const merged = applyYlfPublicPatch(
+        eventRef.current!,
+        categoriesRef.current,
+        nomineesRef.current,
+        publicState,
+      );
+      setEvent(merged.event);
+      setCategories(merged.categories);
+      setNominees(merged.nominees);
+    });
+  }, [eventId, event]);
 
   const title = (event?.title || "").trim() || "Untitled event";
   const rawDesc = (event?.description || "").trim();
@@ -367,27 +397,36 @@ function EventDetailContent() {
                         <h2 id="event-winners-heading" className="hxEventLiveHeading">
                           Declared winners
                         </h2>
-                        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <div className="hxEventWinnersGrid">
                           {winnerCategories.map((c) => {
                             const wid = Number(c.winner_nominee_id);
                             const winner = (nomineesByCategory.get(c.category_id) || []).find(
                               (n) => Number(n.nominee_id) === wid,
                             );
                             const thumb = winner?.photo ? resolveNomineePhotoUrl(apiOrigin, winner.photo) : "";
+                            const winnerName = winner?.name?.trim() || "Winner";
                             return (
-                              <CategoryCard key={c.category_id} name={c.name} meta="Winner">
-                                <NomineeCardGrid>
-                                  <NomineeCard
-                                    name={winner?.name?.trim() || "Winner"}
-                                    photoSrc={thumb}
-                                    votes={winner?.votes}
-                                    fallbackImage={NOMINEE_FALLBACK}
-                                  />
-                                </NomineeCardGrid>
-                              </CategoryCard>
+                              <article key={c.category_id} className="hxEventWinnerCelebrateCard">
+                                <div className="hxEventWinnerCelebrateCat">{c.name}</div>
+                                <div className="hxEventWinnerCelebratePhotoWrap">
+                                  {thumb ? (
+                                    <img
+                                      className="hxEventWinnerCelebratePhoto"
+                                      src={thumb}
+                                      alt=""
+                                      onError={(e) => {
+                                        e.currentTarget.src = NOMINEE_FALLBACK;
+                                      }}
+                                    />
+                                  ) : (
+                                    <img className="hxEventWinnerCelebratePhoto" src={NOMINEE_FALLBACK} alt="" />
+                                  )}
+                                </div>
+                                <div className="hxEventWinnerCelebrateName">{winnerName}</div>
+                              </article>
                             );
                           })}
-                        </Box>
+                        </div>
                       </section>
                     ) : null}
 
@@ -398,12 +437,21 @@ function EventDetailContent() {
                       {categories.length === 0 ? (
                         <p className="hxMuted">No categories yet.</p>
                       ) : (
-                        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <CategoryGroupsPanel>
                           {categories.map((c) => {
                             const noms = nomineesByCategory.get(c.category_id) || [];
+                            const showNoms = categoryShowsNominees(c);
                             return (
-                              <CategoryCard key={c.category_id} name={c.name} nomineeCount={noms.length}>
-                                {noms.length === 0 ? (
+                              <CategorySection
+                                key={c.category_id}
+                                name={c.name}
+                                nomineeCount={showNoms ? noms.length : undefined}
+                              >
+                                {!showNoms ? (
+                                  <Typography color="text.secondary" variant="body2">
+                                    Nominees are not public yet.
+                                  </Typography>
+                                ) : noms.length === 0 ? (
                                   <Typography color="text.secondary" variant="body2">
                                     No nominees to show yet.
                                   </Typography>
@@ -423,10 +471,10 @@ function EventDetailContent() {
                                     })}
                                   </NomineeCardGrid>
                                 )}
-                              </CategoryCard>
+                              </CategorySection>
                             );
                           })}
-                        </Box>
+                        </CategoryGroupsPanel>
                       )}
                     </section>
                   </>

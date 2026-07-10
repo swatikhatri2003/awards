@@ -1,38 +1,31 @@
 "use client";
 
 import React from "react";
-import Box from "@mui/material/Box";
 import { PublicEventCard } from "./PublicEventCard";
 import { resolveEventBannerUrl } from "../_lib/resolveImageUrl";
-import type { HomePublicEvent } from "./landingUtils";
-import { Reveal } from "./landingUtils";
+import { Reveal, sanitizeEventDescription, type HomePublicEvent } from "./landingUtils";
 
-export function PublicEventsList(props: { events: HomePublicEvent[]; apiOrigin: string }) {
-  const { events, apiOrigin } = props;
+export function PublicEventsList(props: {
+  events: HomePublicEvent[];
+  apiOrigin: string;
+  preview?: boolean;
+}) {
+  const { events, apiOrigin, preview } = props;
   if (events.length === 0) return null;
 
+  const gridClass = ["hxEventRiver", preview ? "hxEventRiver--preview" : ""].filter(Boolean).join(" ");
+
   return (
-    <Box
-      component="ul"
-      sx={{
-        listStyle: "none",
-        m: 0,
-        p: 0,
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-        gap: "22px",
-        alignItems: "stretch",
-      }}
-    >
+    <ul className={gridClass}>
       {events.map((ev, i) => {
         const title = (ev.title || "").trim() || "Untitled event";
-        const desc = (ev.description || "").trim();
+        const desc = sanitizeEventDescription(ev.description);
         const imgSrc = resolveEventBannerUrl(apiOrigin, ev.image);
         const detailHref = `/events/${ev.event_id}`;
         const live = ev.is_live === true || ev.is_live === 1;
 
         return (
-          <Box component="li" key={ev.event_id} sx={{ listStyle: "none", minWidth: 0, display: "flex" }}>
+          <li key={ev.event_id} className="hxEventRiverItem">
             <Reveal className="hxEventWrap" delay={i * 70}>
               <PublicEventCard
                 title={title}
@@ -42,9 +35,9 @@ export function PublicEventsList(props: { events: HomePublicEvent[]; apiOrigin: 
                 live={live}
               />
             </Reveal>
-          </Box>
+          </li>
         );
       })}
-    </Box>
+    </ul>
   );
 }

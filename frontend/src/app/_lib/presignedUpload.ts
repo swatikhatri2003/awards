@@ -41,13 +41,15 @@ export async function uploadAwardsPhoto(
     throw new Error(presignData?.error || presignData?.message || "PRESIGN_FAILED");
   }
 
+  const imageBytes = await file.arrayBuffer();
+
   const uploadRes = await fetch(presignedUrl, {
     method: "PUT",
     headers: {
       "Content-Type": file.type || "image/jpeg",
       "x-amz-acl": "public-read",
     },
-    body: file,
+    body: imageBytes,
   });
 
   if (!uploadRes.ok) {

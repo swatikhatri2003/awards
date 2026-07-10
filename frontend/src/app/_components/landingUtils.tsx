@@ -12,6 +12,18 @@ export type HomePublicEvent = {
 
 export const HOME_EVENTS_PREVIEW_LIMIT = 3;
 
+export function isLikelyFilePath(s: string): boolean {
+  const t = s.trim();
+  if (!t) return false;
+  return /[A-Za-z]:\\/.test(t) || (/[\\/]/.test(t) && /workspace|Users|\.tsx|\.jsx|nextjs/i.test(t));
+}
+
+export function sanitizeEventDescription(raw: string | null | undefined): string {
+  const text = (raw || "").trim();
+  if (!text || isLikelyFilePath(text)) return "";
+  return text;
+}
+
 export function Reveal({
   children,
   className = "",

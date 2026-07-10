@@ -67,6 +67,31 @@ export type YlfWinnerEntry = {
   };
 };
 
+export type YlfPublicCategory = {
+  id: number;
+  name: string;
+  showNominee: boolean;
+  declareResult: boolean;
+  winnerNomineeId: number | null;
+};
+
+export type YlfPublicNominee = {
+  id: number;
+  name: string;
+  photo: string;
+  description?: string | null;
+  categoryId: number;
+  votes: number;
+};
+
+export type YlfPublicState = {
+  updatedAt: number;
+  isLive?: boolean;
+  declareResult?: boolean;
+  categories?: Record<string, YlfPublicCategory>;
+  nominees?: Record<string, YlfPublicNominee>;
+};
+
 export type YlfState = {
   page?: YlfPage;
   timer?: {
@@ -99,6 +124,30 @@ export function subscribeYlf(
     },
     (err) => {
       console.error(`[FIREBASE] subscribeYlf event ${eventId} error:`, err);
+      callback(null);
+    },
+  );
+  return unsubscribe;
+}
+
+export async function setYlfPublicState(eventId: number, state: YlfPublicState): Promise<void> {
+  const database = getRtdb();
+  await set(ref(database, ylfEventPath(eventId, "public")), state);
+}
+
+export function subscribeYlfPublic(
+  eventId: number,
+  callback: (state: YlfPublicState | null) => void,
+): () => void {
+  const database = getRtdb();
+  const r = ref(database, ylfEventPath(eventId, "public"));
+  const unsubscribe = onValue(
+    r,
+    (snap) => {
+      callback(snap.val() as YlfPublicState | null);
+    },
+    (err) => {
+      console.error(`[FIREBASE] subscribeYlfPublic event ${eventId} error:`, err);
       callback(null);
     },
   );

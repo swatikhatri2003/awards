@@ -7,8 +7,8 @@ import { useRouter } from "next/navigation";
 import { Shell } from "../_components/Shell";
 import { useToast } from "../_components/ToastProvider";
 import { VoterAccountMenu } from "../_components/VoterAccountMenu";
+import { signOutVoter } from "../_lib/accountSession";
 import {
-  clearCurrentUser,
   pushUserVote,
   readCurrentUser,
   readUid,
@@ -16,6 +16,7 @@ import {
 } from "../_lib/userSession";
 import { getPublicApiBase, getUploadsOrigin } from "../_lib/publicApiBase";
 import { resolveNomineePhotoUrl } from "../_lib/resolveImageUrl";
+import { setYlfNomineeVotes, subscribeYlf, type YlfState } from "@/lib/firebase";
 
 const FALLBACK_PHOTO =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Crect width='100%25' height='100%25' fill='%23f1f5f9'/%3E%3Ctext x='50%25' y='50%25' fill='%2364748b' font-size='14' text-anchor='middle' dominant-baseline='middle'%3ENo Photo%3C/text%3E%3C/svg%3E";
@@ -26,7 +27,13 @@ type Category = {
   category_id: number;
   name: string;
   event_id?: number | null;
+  show_nominee?: number | boolean | null;
 };
+
+function categoryShowsNominees(c: Category | null | undefined): boolean {
+  if (!c) return false;
+  return c.show_nominee === true || c.show_nominee === 1;
+}
 
 type Nominee = {
   nominee_id: number;
@@ -80,6 +87,8 @@ function friendlyError(code: string) {
       return "Nominee does not belong to this category.";
     case "VOTING_WINDOW_CLOSED":
       return "Voting is only open during the scheduled window for this event.";
+    case "EVENT_NOT_LIVE":
+      return "This event is not live yet.";
     default:
       return code || "Something went wrong.";
   }
@@ -88,7 +97,24 @@ function friendlyError(code: string) {
 type EventMeta = {
   start_time?: string | null;
   end_time?: string | null;
+  is_live?: number | boolean | null;
+  live_voting?: number | boolean | null;
 };
+
+function formatMMSS(msLeft: number) {
+  const totalSec = Math.max(0, Math.ceil(msLeft / 1000));
+  const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
+  const ss = String(totalSec % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function eventIsLiveFlag(ev: EventMeta | null): boolean {
+  return ev?.is_live === true || ev?.is_live === 1;
+}
+
+function isLiveVotingEvent(ev: EventMeta | null): boolean {
+  return ev?.live_voting === true || ev?.live_voting === 1;
+}
 
 function clientVotingWindowOpen(ev: EventMeta | null): boolean {
   if (!ev) return true;
@@ -127,7 +153,9 @@ export default function UsersVotePage() {
   const [done, setDone] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
   const [eventMeta, setEventMeta] = React.useState<EventMeta | null>(null);
+  const [ylfState, setYlfState] = React.useState<YlfState | null>(null);
   const [votingWindowOpen, setVotingWindowOpen] = React.useState(true);
+  const [timerTick, setTimerTick] = React.useState(0);
 
   React.useEffect(() => {
     setMounted(true);
@@ -157,10 +185,15 @@ export default function UsersVotePage() {
             ? {
                 start_time: evJson.event.start_time ?? null,
                 end_time: evJson.event.end_time ?? null,
+                is_live: evJson.event.is_live ?? null,
+                live_voting: evJson.event.live_voting ?? null,
               }
             : null;
         setEventMeta(meta);
-        setVotingWindowOpen(clientVotingWindowOpen(meta));
+        const liveMode = isLiveVotingEvent(meta);
+        if (!liveMode) {
+          setVotingWindowOpen(eventIsLiveFlag(meta) && clientVotingWindowOpen(meta));
+        }
         const catData = await catRes.json().catch(() => null);
         const nomData = await nomRes.json().catch(() => null);
 
@@ -193,21 +226,104 @@ export default function UsersVotePage() {
   }, [apiBase, router]);
 
   React.useEffect(() => {
-    if (!eventMeta) return;
-    const tick = () => setVotingWindowOpen(clientVotingWindowOpen(eventMeta));
+    if (!eventMeta || isLiveVotingEvent(eventMeta)) return;
+    const tick = () =>
+      setVotingWindowOpen(eventIsLiveFlag(eventMeta) && clientVotingWindowOpen(eventMeta));
     tick();
     const id = window.setInterval(tick, 30_000);
     return () => window.clearInterval(id);
   }, [eventMeta]);
 
-  const activeCategory = categories[activeIdx] ?? null;
+  const eventId =
+    typeof user?.eventId === "number" && user.eventId > 0 ? Math.floor(user.eventId) : null;
+  const liveVotingMode = isLiveVotingEvent(eventMeta);
+
+  React.useEffect(() => {
+    if (!liveVotingMode || !eventId) return;
+    return subscribeYlf(eventId, setYlfState);
+  }, [liveVotingMode, eventId]);
+
+  React.useEffect(() => {
+    if (!eventId) return;
+    const refresh = () => {
+      void Promise.all([
+        fetch(`${apiBase}/events/${eventId}`).then((r) => r.json().catch(() => null)),
+        fetch(`${apiBase}/categories?eventId=${eventId}`).then((r) => r.json().catch(() => null)),
+      ]).then(([data, catData]) => {
+        if (data?.event) {
+          const meta: EventMeta = {
+            start_time: data.event.start_time ?? null,
+            end_time: data.event.end_time ?? null,
+            is_live: data.event.is_live ?? null,
+            live_voting: data.event.live_voting ?? null,
+          };
+          setEventMeta(meta);
+          if (!isLiveVotingEvent(meta)) {
+            setVotingWindowOpen(eventIsLiveFlag(meta) && clientVotingWindowOpen(meta));
+          }
+        }
+        const rawCats = catData?.categories;
+        if (Array.isArray(rawCats) && rawCats.length > 0) {
+          const sorted = [...rawCats].sort(
+            (a: Category, b: Category) => Number(a.category_id) - Number(b.category_id),
+          );
+          setCategories(sorted);
+        }
+      });
+    };
+    refresh();
+    const id = window.setInterval(refresh, 30_000);
+    return () => window.clearInterval(id);
+  }, [eventId, apiBase]);
+
+  const liveCategoryId = ylfState?.category?.id ?? ylfState?.timer?.categoryId ?? null;
+  const liveCategory = React.useMemo(() => {
+    if (!liveCategoryId) return null;
+    return categories.find((c) => Number(c.category_id) === Number(liveCategoryId)) ?? null;
+  }, [categories, liveCategoryId]);
+
+  const timer = ylfState?.timer;
+  const timerMatches =
+    timer && liveCategoryId && Number(timer.categoryId) === Number(liveCategoryId);
+  const msLeft =
+    timerMatches && timer?.running
+      ? Math.max(0, Number(timer.endsAtMs) - Date.now())
+      : 0;
+  void timerTick;
+  const liveVotingOpen = !!(
+    eventIsLiveFlag(eventMeta) &&
+    timerMatches &&
+    timer?.running &&
+    msLeft > 0
+  );
+
+  React.useEffect(() => {
+    if (!liveVotingMode || !timer?.running) return;
+    const id = window.setInterval(() => setTimerTick((t) => t + 1), 250);
+    return () => window.clearInterval(id);
+  }, [liveVotingMode, timer?.running]);
+
+  const canVoteNow = liveVotingMode ? liveVotingOpen : votingWindowOpen;
+
+  const activeCategory = liveVotingMode ? liveCategory : (categories[activeIdx] ?? null);
+
+  const showNomineesForActive = React.useMemo(() => {
+    if (!activeCategory) return false;
+    if (liveVotingMode) {
+      const ylfCat = ylfState?.category;
+      if (ylfCat && Number(ylfCat.id) === Number(activeCategory.category_id)) {
+        return ylfCat.showNominee !== false;
+      }
+    }
+    return categoryShowsNominees(activeCategory);
+  }, [activeCategory, liveVotingMode, ylfState?.category]);
 
   const nominees = React.useMemo(() => {
-    if (!activeCategory) return [];
+    if (!activeCategory || !showNomineesForActive) return [];
     return allNominees.filter(
       (n) => Number(n.category_id) === Number(activeCategory.category_id),
     );
-  }, [allNominees, activeCategory]);
+  }, [allNominees, activeCategory, showNomineesForActive]);
 
   React.useEffect(() => {
     if (!activeCategory) {
@@ -232,7 +348,16 @@ export default function UsersVotePage() {
 
   async function submitVote() {
     if (!activeCategory || !selectedNomineeId || !user) return;
-    if (!votingWindowOpen) {
+    if (liveVotingMode) {
+      const left =
+        timerMatches && timer?.running
+          ? Math.max(0, Number(timer.endsAtMs) - Date.now())
+          : 0;
+      if (!eventIsLiveFlag(eventMeta) || left <= 0) {
+        toastError("Voting closed — the timer has ended.");
+        return;
+      }
+    } else if (!votingWindowOpen) {
       toastError(friendlyError("VOTING_WINDOW_CLOSED"));
       return;
     }
@@ -272,6 +397,13 @@ export default function UsersVotePage() {
         throw new Error(friendlyError(data?.error || "VOTE_FAILED"));
       }
 
+      if (liveVotingMode && eventId && selectedNomineeId) {
+        const nextVotes = Number(data?.nominee?.votes ?? data?.votes);
+        if (Number.isFinite(nextVotes)) {
+          await setYlfNomineeVotes(eventId, { nomineeId: selectedNomineeId, votes: nextVotes });
+        }
+      }
+
       const nomineeMatch = nominees.find((n) => Number(n.nominee_id) === selectedNomineeId);
       setVoted(true);
       setVotedNomineeId(selectedNomineeId);
@@ -307,7 +439,7 @@ export default function UsersVotePage() {
   }
 
   function logout() {
-    clearCurrentUser();
+    signOutVoter();
     router.replace("/register");
   }
 
@@ -318,20 +450,41 @@ export default function UsersVotePage() {
     ? nominees.find((n) => Number(n.nominee_id) === votedNomineeId) ?? null
     : null;
 
-  const eventId =
-    typeof user?.eventId === "number" && user.eventId > 0 ? Math.floor(user.eventId) : null;
-
   const headerTitle = done
     ? "All Done"
     : activeCategory
       ? activeCategory.name
       : loadingInit
         ? "Loading..."
-        : "No categories";
+        : liveVotingMode
+          ? "Waiting for category"
+          : "No categories";
 
-  const backDisabled = activeIdx === 0 && !done;
-  /* Allow moving to the next category without voting (skip / browse first). */
-  const nextDisabled = done;
+  const liveClosedReason = !liveCategoryId
+    ? "Waiting for the host to select a category..."
+    : !timerMatches
+      ? "Waiting for admin to start the timer..."
+      : !timer?.running
+        ? "Voting not started yet."
+        : "Voting closed.";
+
+  const showPreClosedHint =
+    !loadingInit &&
+    !liveVotingMode &&
+    !votingWindowOpen &&
+    eventMeta?.start_time &&
+    eventMeta?.end_time;
+  const showPreNotLiveHint =
+    !loadingInit && !liveVotingMode && !eventIsLiveFlag(eventMeta) && !showPreClosedHint;
+  const showLiveNotLiveHint =
+    !loadingInit && liveVotingMode && !eventIsLiveFlag(eventMeta);
+  const showLiveWaitingHint =
+    !loadingInit && liveVotingMode && eventIsLiveFlag(eventMeta) && !liveVotingOpen && !activeCategory;
+  const showLiveClosedHint =
+    !loadingInit && liveVotingMode && eventIsLiveFlag(eventMeta) && activeCategory && !liveVotingOpen;
+
+  const backDisabled = liveVotingMode || (activeIdx === 0 && !done);
+  const nextDisabled = liveVotingMode || done;
   const voteDisabled =
     done ||
     voting ||
@@ -339,7 +492,7 @@ export default function UsersVotePage() {
     !selectedNomineeId ||
     !activeCategory ||
     nominees.length === 0 ||
-    !votingWindowOpen;
+    !canVoteNow;
 
   const bottomBar = (
     <div className="voteBottomBar">
@@ -399,10 +552,36 @@ export default function UsersVotePage() {
     >
       <h1 className="usersVoteTitle">{headerTitle}</h1>
 
-      {!loadingInit && !votingWindowOpen && eventMeta?.start_time && eventMeta?.end_time ? (
+      {liveVotingMode && liveVotingOpen ? (
+        <div className="voteClosedHint" style={{ borderColor: "rgba(214,180,106,0.45)", color: "inherit" }} aria-live="polite">
+          Time left: {formatMMSS(msLeft)}
+        </div>
+      ) : null}
+
+      {showPreClosedHint ? (
         <div className="voteClosedHint">
           Voting is closed right now. It opens only between the scheduled start and end times for this event.
         </div>
+      ) : null}
+
+      {showPreNotLiveHint ? (
+        <div className="voteClosedHint">
+          This event is not live yet. Voting will open when the scheduled window starts.
+        </div>
+      ) : null}
+
+      {showLiveNotLiveHint ? (
+        <div className="voteClosedHint">
+          This event is not live yet. The host will go live when voting begins.
+        </div>
+      ) : null}
+
+      {showLiveWaitingHint ? (
+        <div className="voteClosedHint">{liveClosedReason}</div>
+      ) : null}
+
+      {showLiveClosedHint ? (
+        <div className="voteClosedHint">{liveClosedReason}</div>
       ) : null}
 
       {done ? (
@@ -418,13 +597,21 @@ export default function UsersVotePage() {
           </div>
         </section>
       ) : !activeCategory ? (
-        <div className="hint">{loadingInit ? "Please wait..." : "No categories yet."}</div>
+        <div className="hint">
+          {loadingInit
+            ? "Please wait..."
+            : liveVotingMode
+              ? liveClosedReason
+              : "No categories yet."}
+        </div>
       ) : (
         <section
           className="usersVoteSectionPad"
           aria-label="Category voting"
         >
-          {nominees.length === 0 ? (
+          {!showNomineesForActive ? (
+            <div className="hint">Nominees are not public yet.</div>
+          ) : nominees.length === 0 ? (
             <div className="hint">No nominees in this category yet.</div>
           ) : (
             <div className="usersVoteNomineeList">
@@ -456,7 +643,7 @@ export default function UsersVotePage() {
                       type="radio"
                       name={`nominee-${activeCategory.category_id}`}
                       checked={isSelected}
-                      disabled={voting || voted}
+                      disabled={voting || voted || (liveVotingMode && !canVoteNow)}
                       onChange={() => setSelectedNomineeId(Number(n.nominee_id))}
                       className="visuallyHidden"
                     />
