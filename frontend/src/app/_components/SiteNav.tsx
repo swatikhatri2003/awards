@@ -5,6 +5,7 @@ import Link from "next/link";
 import { HeaderAccountMenu } from "./HeaderAccountMenu";
 
 const links = [
+  { href: "/#how", label: "How it works" },
   { href: "/#why", label: "Why us" },
   { href: "/#features", label: "Features" },
   { href: "/events", label: "Vote" },

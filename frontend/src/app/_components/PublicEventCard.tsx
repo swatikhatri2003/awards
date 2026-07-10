@@ -20,7 +20,7 @@ export function PublicEventCard(props: PublicEventCardProps) {
       <div className="hxEventVisual">
         {imageSrc ? (
           <>
-            <img src={imageSrc} alt="" className="hxEventImg" loading="lazy" />
+            <img src={imageSrc} alt={`${title} event banner`} className="hxEventImg" loading="lazy" />
             <span className="hxEventShine" aria-hidden />
           </>
         ) : (
