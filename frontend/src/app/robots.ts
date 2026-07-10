@@ -1,14 +1,19 @@
 import type { MetadataRoute } from "next";
-import { getSiteUrl } from "./_lib/site";
+import { withBasePath } from "./_lib/basePath";
+import { absoluteSiteUrl } from "./_lib/site";
+
+// Required for `output: 'export'` (static export).
+export const dynamic = "force-static";
+
+const DISALLOW_PATHS = ["/admin", "/actions", "/screen", "/otp", "/register", "/profile"] as const;
 
 export default function robots(): MetadataRoute.Robots {
-  const base = getSiteUrl();
   return {
     rules: {
       userAgent: "*",
-      allow: "/",
-      disallow: ["/admin", "/actions", "/screen", "/otp", "/register", "/profile"],
+      allow: withBasePath("/"),
+      disallow: DISALLOW_PATHS.map((path) => withBasePath(path)),
     },
-    sitemap: `${base}/sitemap.xml`,
+    sitemap: absoluteSiteUrl("/sitemap.xml"),
   };
 }

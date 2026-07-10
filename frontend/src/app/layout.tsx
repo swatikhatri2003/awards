@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import { MuiProvider } from "./_components/MuiProvider";
-import { getSiteUrl, siteConfig } from "./_lib/site";
+import { getSiteOrigin, siteConfig } from "./_lib/site";
 import "./globals.css";
 
 const inter = Inter({
@@ -14,10 +14,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const siteUrl = getSiteUrl();
+const siteOrigin = getSiteOrigin();
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  metadataBase: new URL(siteOrigin),
   title: {
     default: siteConfig.title,
     template: `%s | ${siteConfig.name}`,
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: siteConfig.locale,
-    url: siteUrl,
+    url: "/",
     siteName: siteConfig.name,
     title: siteConfig.title,
     description: siteConfig.description,

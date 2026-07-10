@@ -1,7 +1,8 @@
-import { getSiteUrl, siteConfig } from "../_lib/site";
+import { absoluteSiteUrl, getSiteUrl, siteConfig } from "../_lib/site";
 
 export function HomeJsonLd() {
   const siteUrl = getSiteUrl();
+  const eventsUrl = absoluteSiteUrl("/events");
 
   const website = {
     "@context": "https://schema.org",
@@ -12,7 +13,7 @@ export function HomeJsonLd() {
     inLanguage: "en",
     potentialAction: {
       "@type": "SearchAction",
-      target: `${siteUrl}/events?q={search_term_string}`,
+      target: `${eventsUrl}?q={search_term_string}`,
       "query-input": "required name=search_term_string",
     },
   };

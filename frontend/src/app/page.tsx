@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { HomeJsonLd } from "./_components/HomeJsonLd";
 import { HomePageClient } from "./_components/HomePageClient";
-import { getSiteUrl, siteConfig } from "./_lib/site";
+import { siteConfig } from "./_lib/site";
 
 export const metadata: Metadata = {
   title: { absolute: siteConfig.title },
@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: siteConfig.title,
     description: siteConfig.description,
-    url: getSiteUrl(),
+    url: "/",
     type: "website",
   },
 };
